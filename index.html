@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#0b1020">
+  <title>100-Day Study Tracker</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div id="authScreen" class="auth-screen">
+    <div class="auth-card">
+      <div class="eyebrow">PERSONAL PRODUCTIVITY SYSTEM</div>
+      <h1>100-Day Study Tracker</h1>
+      <p class="muted">Sign in to sync your progress across every device.</p>
+      <form id="authForm">
+        <label>Email<input id="authEmail" type="email" autocomplete="email" required></label>
+        <label>Password<input id="authPassword" type="password" autocomplete="current-password" required></label>
+        <button class="primary" type="submit">Sign in</button>
+      </form>
+      <button id="resetPasswordBtn" class="link-btn" type="button">Forgot password?</button>
+      <p id="authMessage" class="auth-message"></p>
+    </div>
+  </div>
+
+  <div id="appShell" class="hidden">
+    <header class="topbar">
+      <div>
+        <div class="eyebrow">PERSONAL PRODUCTIVITY SYSTEM</div>
+        <h1>100-Day Study Tracker</h1>
+        <p class="muted">Build consistency. Track the work. Don't lose the history.</p>
+      </div>
+      <div class="top-actions">
+        <div class="clockbox"><div id="todayDate">--</div><strong id="clock">--:--:--</strong><span>IST · Asia/Kolkata</span></div>
+        <button id="signOutBtn" class="secondary small-btn">Sign out</button>
+      </div>
+    </header>
+
+    <main class="container">
+      <section class="hero-grid">
+        <div class="card progress-card">
+          <div class="card-head"><div><span class="label">100-DAY MISSION</span><h2><span id="daysCompleted">0</span> / 100 days</h2></div><div class="big-percent" id="missionPercent">0%</div></div>
+          <div class="progress"><div id="missionBar" class="progress-fill"></div></div>
+          <div class="stats-row"><div><b id="daysRemaining">100</b><span>days remaining</span></div><div><b id="currentStreak">0</b><span>day streak</span></div><div><b id="completionRate">0%</b><span>task completion</span></div></div>
+        </div>
+        <div class="card today-card">
+          <div class="card-head"><div><span class="label">TODAY</span><h2 id="planTitle">Loading…</h2></div><span id="planBadge" class="badge">—</span></div>
+          <div class="today-progress"><div class="ring"><span id="todayPercent">0%</span></div><div><b id="todayTasks">0 / 0 tasks</b><p id="todayMinutes" class="muted">0 / 0 minutes</p><button id="completeDayBtn" class="primary">Mark day complete</button></div></div>
+        </div>
+      </section>
+
+      <section class="dashboard-grid">
+        <div class="card tasks-card">
+          <div class="card-head"><div><span class="label">DAILY CHECKLIST</span><h2 id="checklistTitle">Today's tasks</h2></div><span class="autosave">● CLOUD-SAVED</span></div>
+          <div id="taskList" class="task-list"></div>
+          <div class="notes"><label for="notes">Daily note / what did you learn?</label><textarea id="notes" placeholder="Write a short reflection, blockers, wins, or tomorrow's priority…"></textarea><button id="saveNotes" class="secondary">Save note</button></div>
+        </div>
+        <div class="side-stack">
+          <div class="card"><div class="card-head"><div><span class="label">PROGRESS</span><h3>Daily Work</h3></div><span class="chart-help">100 DAYS · CLICK A DAY</span></div><div class="chart-scroll" id="chartScroll"><div class="mini-chart-wrap"><div id="progressChart" class="bar-chart" role="img" aria-label="Daily work completed chart"></div></div></div><div id="chartStats" class="chart-stats"></div></div>
+          <div class="card productivity"><div class="card-head"><h3>Productivity boosters</h3></div><label><input type="checkbox" id="boosterFocus"> 25–50 min distraction-free focus block</label><label><input type="checkbox" id="boosterPhone"> Phone away / notifications off</label><label><input type="checkbox" id="boosterReview"> 5-minute end-of-day review</label><label><input type="checkbox" id="boosterNext"> Choose tomorrow's #1 task</label><p class="muted small">Boosters are saved locally for today's session.</p></div>
+        </div>
+      </section>
+
+      <section class="card history-card"><div class="card-head"><div><span class="label">HISTORY</span><h2>100-day record</h2></div><div class="actions"><button id="exportBtn" class="secondary">Export backup</button><label class="secondary file-btn">Import backup<input id="importFile" type="file" accept="application/json"></label></div></div><div id="historyGrid" class="history-grid"></div><div class="legend"><span><i class="dot done"></i> completed</span><span><i class="dot partial"></i> partial</span><span><i class="dot empty"></i> no record</span></div></section>
+      <section class="card rules-card"><h3>Your schedule</h3><div class="schedule-cols"><div><b>Normal plan</b><span>Monday–Saturday except 2nd Saturday</span><span>Python 60m · C# 60m · BIM ISO 60m · SUB 30m · OpenFOAM 30m · Git 10m · C++ 10m · Power BI 10m · Godot 10m · Blender 10m · Twinmotion 10m · N8N 10m</span></div><div><b>Holiday plan</b><span>Every Sunday + 2nd Saturday</span><span>Python 2h · C# 60m · BIM ISO 60m · OpenFOAM 30m · C++ 30m · Git 20m · SUB 2h</span></div></div></section>
+    </main>
+  </div>
+
+  <div id="dayModal" class="modal" aria-hidden="true"><div class="modal-backdrop" data-close-modal></div><section class="modal-card" role="dialog" aria-modal="true" aria-labelledby="modalTitle"><button class="modal-close" data-close-modal aria-label="Close">×</button><div class="modal-kicker" id="modalKicker">DAY DETAILS</div><h2 id="modalTitle">Day details</h2><p id="modalSubtitle" class="muted"></p><div class="modal-stats" id="modalStats"></div><div class="modal-progress"><div id="modalProgressFill"></div></div><div class="modal-section"><div class="modal-section-head"><h3>Task breakdown</h3><span id="modalTaskCount" class="muted"></span></div><div id="modalTasks" class="modal-tasks"></div></div><div class="modal-section"><h3>Daily note</h3><div id="modalNote" class="modal-note">No note recorded.</div></div></section></div>
+
+  <div id="toast" class="toast"></div>
+  <footer>Cloud-synced tracker · GitHub Pages ready · Supabase database · automatic daily rollover · exportable backups</footer>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="app.js"></script>
+</body>
+</html>
