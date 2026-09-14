@@ -205,7 +205,36 @@ $("#importFile").addEventListener("change",async e=>{
 ["Focus","Phone","Review","Next"].forEach(name=>{const key=`booster${name}`,el=$("#"+key);el.addEventListener("change",()=>localStorage.setItem(`tracker-${today?.date}-${key}`,el.checked));});
 function loadBoosters(){["Focus","Phone","Review","Next"].forEach(name=>{const key=`booster${name}`,el=$("#"+key);el.checked=localStorage.getItem(`tracker-${today.date}-${key}`)==="true";});}
 
-$("#authForm").addEventListener("submit",async e=>{e.preventDefault();setAuthMessage("Signing in…");const email=$("#authEmail").value.trim(),password=$("#authPassword").value;const r=await supabase.auth.signInWithPassword({email,password});if(r.error){setAuthMessage(r.error.message,true);return;}setAuthMessage("");});
+$("#authForm").addEventListener("submit",async e=>{
+  e.preventDefault();
+  e.stopPropagation();
+  const btn=$("#authForm button[type="submit"]");
+  const email=$("#authEmail").value.trim();
+  const password=$("#authPassword").value;
+  setAuthMessage("Signing in…");
+  if(btn) btn.disabled=true;
+  try{
+    if(!email || !password){
+      setAuthMessage("Enter your email and password.",true);
+      return;
+    }
+    const {data,error}=await supabase.auth.signInWithPassword({email,password});
+    if(error){
+      setAuthMessage(error.message,true);
+      return;
+    }
+    if(!data?.session){
+      setAuthMessage("Login did not create a session. Please try again.",true);
+      return;
+    }
+    setAuthMessage("Signed in successfully.");
+  }catch(err){
+    console.error("Login error:",err);
+    setAuthMessage(err?.message||"Could not sign in. Check your connection and try again.",true);
+  }finally{
+    if(btn) btn.disabled=false;
+  }
+});
 $("#resetPasswordBtn").addEventListener("click",async()=>{const email=$("#authEmail").value.trim();if(!email){setAuthMessage("Enter your email first.",true);return;}const r=await supabase.auth.resetPasswordForEmail(email,{redirectTo:location.href});setAuthMessage(r.error?r.error.message:"Password reset email sent.",!!r.error);});
 $("#signOutBtn").addEventListener("click",()=>supabase.auth.signOut());
 
