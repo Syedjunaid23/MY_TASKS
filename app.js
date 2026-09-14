@@ -1,3 +1,5 @@
+(function(){
+"use strict";
 const SUPABASE_URL = "https://gphhqduzfpvcqatfuviq.supabase.co";
 const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_juaQo-1G66hHWvNN7KcvaA_RZ61YSjr";
 const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
@@ -276,3 +278,5 @@ function stopApp(){session=null;user=null;mission=null;tasks=[];today=null;histo
 supabase.auth.onAuthStateChange(async(_event,s)=>{if(s)await startApp(s);else stopApp();});
 (async()=>{const r=await supabase.auth.getSession();if(r.data.session)await startApp(r.data.session);})();
 setInterval(async()=>{if(!user||!today)return;const freshDate=dateKeyInIST();if(freshDate!==today.date){today=await getDay(freshDate);loadBoosters();renderToday();await refreshStats();}},30000);
+
+})();
