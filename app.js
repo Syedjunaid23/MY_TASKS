@@ -208,7 +208,7 @@ function loadBoosters(){["Focus","Phone","Review","Next"].forEach(name=>{const k
 $("#authForm").addEventListener("submit",async e=>{
   e.preventDefault();
   e.stopPropagation();
-  const btn=$("#authForm button[type="submit"]");
+  const btn=$('#authForm button[type="submit"]');
   const email=$("#authEmail").value.trim();
   const password=$("#authPassword").value;
   setAuthMessage("Signing in…");
@@ -218,19 +218,19 @@ $("#authForm").addEventListener("submit",async e=>{
       setAuthMessage("Enter your email and password.",true);
       return;
     }
-    const {data,error}=await supabase.auth.signInWithPassword({email,password});
-    if(error){
-      setAuthMessage(error.message,true);
+    const r=await supabase.auth.signInWithPassword({email,password});
+    if(r.error){
+      setAuthMessage(r.error.message,true);
       return;
     }
-    if(!data?.session){
+    if(!r.data || !r.data.session){
       setAuthMessage("Login did not create a session. Please try again.",true);
       return;
     }
     setAuthMessage("Signed in successfully.");
   }catch(err){
     console.error("Login error:",err);
-    setAuthMessage(err?.message||"Could not sign in. Check your connection and try again.",true);
+    setAuthMessage(err && err.message ? err.message : "Could not sign in. Check your connection and try again.",true);
   }finally{
     if(btn) btn.disabled=false;
   }
