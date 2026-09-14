@@ -236,6 +236,34 @@ $("#authForm").addEventListener("submit",async e=>{
   }
 });
 $("#resetPasswordBtn").addEventListener("click",async()=>{const email=$("#authEmail").value.trim();if(!email){setAuthMessage("Enter your email first.",true);return;}const r=await supabase.auth.resetPasswordForEmail(email,{redirectTo:location.href});setAuthMessage(r.error?r.error.message:"Password reset email sent.",!!r.error);});
+$("#signUpBtn").addEventListener("click",async()=>{
+  const email=$("#authEmail").value.trim();
+  const password=$("#authPassword").value;
+  if(!email || !password){
+    setAuthMessage("Enter an email and password first.",true);
+    return;
+  }
+  if(password.length < 6){
+    setAuthMessage("Password must be at least 6 characters.",true);
+    return;
+  }
+  setAuthMessage("Creating your account…");
+  try{
+    const r=await supabase.auth.signUp({email,password});
+    if(r.error){
+      setAuthMessage(r.error.message,true);
+      return;
+    }
+    if(r.data && r.data.session){
+      setAuthMessage("Account created. Signing you in…");
+    }else{
+      setAuthMessage("Account created. Check your email to confirm it, then sign in.");
+    }
+  }catch(err){
+    console.error("Sign-up error:",err);
+    setAuthMessage(err && err.message ? err.message : "Could not create the account.",true);
+  }
+});
 $("#signOutBtn").addEventListener("click",()=>supabase.auth.signOut());
 
 async function startApp(s){
