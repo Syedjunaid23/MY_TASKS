@@ -1,4 +1,4 @@
-# 100-Day Study Tracker — GitHub Pages + Supabase
+# 100-Day Study Tracker 
 
 This version is a static frontend designed for GitHub Pages. Progress is stored in Supabase, so the same account can use the tracker from multiple devices.
 
