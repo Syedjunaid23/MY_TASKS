@@ -1,6 +1,6 @@
-# MY_TASKS V18
+# MY_TASKS 
 
-V18 keeps the existing MY_TASKS dashboard, Projects, Mission start date, 100-day history, Supabase Auth and milestone celebrations, while polishing the productivity UI.
+V18 keeps the existing MY_TASKS dashboard, Projects, Mission start date, 100-day history, Supabase Auth and milestone celebrations, while polishing the productivity UI. https://syedjunaid23.github.io/MY_TASKS/
 
 ## V18 highlights
 
@@ -16,17 +16,3 @@ V18 keeps the existing MY_TASKS dashboard, Projects, Mission start date, 100-day
 - Projects show logged time, target time, active days, streak and the task contributing the most time.
 - Task/project dropdowns are compact floating panels rather than layout-breaking sections.
 - Existing task-to-project linking and project progress logic remain compatible with the V17 database setup.
-
-## Deployment
-
-Upload exactly these four files to the root of the GitHub Pages `main` branch:
-
-- `index.html`
-- `app.js`
-- `styles.css`
-- `README.md`
-
-No new SQL migration is required for V18. Keep the database/RPC setup already applied for V17.
-
-
-Login fix: cache-busted app.js to v18 and bound the sign-in handler before other UI listeners.
