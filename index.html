@@ -86,11 +86,11 @@
       <h2 id="checklistModalTitle">Edit checklist</h2>
       <p class="muted project-private-note">Nothing is predefined in your active checklist. Add your own task name and daily time.</p>
       <div id="taskManagerList" class="task-manager-list"></div>
-      <form id="addTaskForm" class="task-add-form" autocomplete="new-password">
+      <form id="addTaskForm" class="task-add-form" autocomplete="off">
         <div class="task-add-form-grid">
-          <label>Task name<input id="newTaskName" type="text" maxlength="100" placeholder="Enter task name" required></label>
-          <label>Hours<input id="newTaskHours" type="number" min="0" max="9999" value="" inputmode="numeric"></label>
-          <label>Minutes<input id="newTaskMinutes" type="number" min="0" max="59" value="" inputmode="numeric"></label>
+          <label>Task name<input id="newTaskName" name="task_label_8391" type="text" maxlength="100" placeholder="Enter task name" autocomplete="off" required></label>
+          <label>Hours<input id="newTaskHours" name="task_hours_8391" type="number" min="0" max="9999" value="" inputmode="numeric" autocomplete="off"></label>
+          <label>Minutes<input id="newTaskMinutes" name="task_minutes_8391" type="number" min="0" max="59" value="" inputmode="numeric" autocomplete="off"></label>
           <div class="task-add-form-actions"><button class="primary" type="submit">＋ Add task</button></div>
         </div>
       </form>
@@ -131,10 +131,28 @@
 
   <div id="dayModal" class="modal" aria-hidden="true"><div class="modal-backdrop" data-close-modal></div><section class="modal-card" role="dialog" aria-modal="true" aria-labelledby="modalTitle"><button class="modal-close" data-close-modal aria-label="Close">×</button><div class="modal-kicker" id="modalKicker">DAY DETAILS</div><h2 id="modalTitle">Day details</h2><p id="modalSubtitle" class="muted"></p><div class="modal-stats" id="modalStats"></div><div class="modal-progress"><div id="modalProgressFill"></div></div><div class="modal-section"><div class="modal-section-head"><h3>Task breakdown</h3><span id="modalTaskCount" class="muted"></span></div><div id="modalTasks" class="modal-tasks"></div></div><div class="modal-section"><h3>Daily note</h3><div id="modalNote" class="modal-note">No note recorded.</div></div></section></div>
 
+  <div id="celebrationOverlay" class="celebration-overlay" aria-hidden="true">
+    <div class="celebration-glow"></div>
+    <div id="celebrationFireworks" class="celebration-fireworks" aria-hidden="true"></div>
+    <div id="celebrationConfetti" class="celebration-confetti" aria-hidden="true"></div>
+    <div id="celebrationBalloons" class="celebration-balloons" aria-hidden="true"></div>
+    <section class="celebration-card" role="dialog" aria-modal="true" aria-labelledby="celebrationTitle">
+      <div id="celebrationIcon" class="celebration-icon">🏆</div>
+      <div id="celebrationKicker" class="celebration-kicker">DAILY VICTORY</div>
+      <h2 id="celebrationTitle">DAY COMPLETE!</h2>
+      <p id="celebrationSubtitle" class="celebration-subtitle">100% OF TODAY'S WORK DONE</p>
+      <div id="celebrationStats" class="celebration-stats"></div>
+      <div id="celebrationMessage" class="celebration-message">You showed up. You finished. Keep going.</div>
+      <div id="celebrationBadges" class="celebration-badges"></div>
+      <button id="celebrationContinueBtn" class="celebration-continue" type="button">CONTINUE →</button>
+      <div id="celebrationNext" class="celebration-next">KEEP THE MOMENTUM GOING</div>
+    </section>
+  </div>
+
   <div id="toast" class="toast"></div>
   <footer>Cloud-synced tracker · GitHub Pages ready · Supabase database · automatic daily rollover · exportable backups</footer>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="app.js?v=10"></script>
+  <script src="app.js?v=11"></script>
 </body>
 </html>

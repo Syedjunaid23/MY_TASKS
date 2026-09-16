@@ -1,30 +1,40 @@
-# MY_TASKS — preserved tracker + custom checklist
+# MY_TASKS — checklist + projects update
 
-This build keeps the original tracker behavior and visual structure from the supplied ZIP, while adding only the requested controls:
+This deployment keeps the existing tracker layout, Daily Work chart, 100-day history, notes, productivity boosters, Projects section, and Mission start-date setting.
 
-- Daily checklist starts empty for the active checklist.
-- No browser `prompt()` is used for adding tasks.
-- `⚙ Edit checklist` opens a proper in-page editor.
-- Add, rename, change daily time, remove, and reorder tasks.
-- The original Daily Work 100-day bar chart is preserved.
-- The original 100-day history table/grid is preserved.
-- Daily notes, productivity boosters, day-detail modal, backup, auth, and daily rollover are preserved.
-- `⚙ Mission` lets you choose the 100-day start date.
-- Projects remain a separate private section with create/edit/delete and target time.
+## Daily Checklist
+- Starts empty for each user.
+- Add your own task name and daily time.
+- Edit task name/time.
+- Remove tasks without deleting existing completion history.
+- Reorder tasks.
+- No browser `prompt()` dialogs.
+- Checklist completion continues to feed the existing Daily Work/history system.
 
-## Important compatibility choice
+## Mission
+Use **⚙ Mission** to choose the start date. Day 1 begins on that date; the tracker runs for 100 days.
 
-The supplied database schema for `tasks` does **not** contain the `active` column used by the previous build, so this version uses the original task columns (`id`, `name`, `weekday_minutes`, `holiday_minutes`, `sort_order`) and does not require a database migration or SQL file.
+## Projects
+Projects stay separate from the checklist and are private to the signed-in user.
 
-Existing task rows are left untouched so the old history can still be reconstructed. The new checklist uses task IDs created/selected by this build and stores that selection in the browser for this signed-in account.
+## Supabase setup
+Run `tasks_permissions_and_custom.sql` once in the Supabase SQL Editor. This adds the user-owned checklist fields and creates secure RPC functions for task reads/writes. The frontend uses those RPC functions so checklist writes do not depend on conflicting old `tasks` RLS policies.
 
-## Deploy
+Then upload only these four frontend files to GitHub Pages:
 
-Replace only these four GitHub Pages files:
+```text
+index.html
+app.js
+styles.css
+README.md
+```
 
-- `index.html`
-- `app.js`
-- `styles.css`
-- `README.md`
+Do not upload the SQL file to GitHub Pages; it is only for the Supabase SQL Editor.
 
-No SQL file is included.
+### Celebration milestones
+- Completing the final task of a day at 100% triggers one full-screen daily celebration.
+- Every completed 7-day block gets a separate birthday/party-style celebration.
+- Day 100 has a final mission celebration.
+- Each milestone is stored in browser local storage so refreshes do not replay the celebration on that device.
+- Celebration effects are CSS/JavaScript only; no database changes are required for this feature.
+

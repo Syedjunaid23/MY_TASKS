@@ -51,13 +51,19 @@ async function ensureMission(){
   if(ins.error) throw ins.error; mission=ins.data;
 }
 
+function normalizeTaskId(id){
+  const text=String(id ?? "");
+  return /^\d+$/.test(text) ? Number(text) : text;
+}
+
 async function loadTasks(){
-  const r=await supabase.from("tasks").select("id,name,weekday_minutes,holiday_minutes,sort_order,user_id,active").order("sort_order");
+  const r=await supabase.rpc("tracker_list_tasks");
   if(r.error) throw r.error;
-  allTasks=(r.data||[])
+  const rows=Array.isArray(r.data) ? r.data : [];
+  allTasks=rows
     .filter(t=>t.active !== false)
     .map(t=>({
-      id:t.id,
+      id:normalizeTaskId(t.id),
       name:t.name,
       weekday:Number(t.weekday_minutes)||0,
       holiday:Number(t.holiday_minutes ?? t.weekday_minutes)||0,
@@ -143,7 +149,14 @@ function renderSetupSummary(){
   const s=$("#setupChecklistSummary"); if(s) s.textContent=tasks.length?`${tasks.length} custom task${tasks.length===1?"":"s"} configured.`:"Your checklist is empty. Add your own tasks.";
   const m=$("#setupMissionSummary"); if(m&&mission?.start_date) m.textContent=`Starts ${formatDate(mission.start_date,{day:"numeric",month:"long",year:"numeric"})}.`;
 }
-function openChecklistModal(){renderTaskManager();$("#newTaskName").value="";$("#newTaskHours").value="";$("#newTaskMinutes").value="";$("#checklistModal").classList.add("open");$("#checklistModal").setAttribute("aria-hidden","false");setTimeout(()=>$("#newTaskName").focus(),0);}
+function openChecklistModal(){
+  clearNewTaskFields();
+  renderTaskManager();
+  $("#checklistModal").classList.add("open");
+  $("#checklistModal").setAttribute("aria-hidden","false");
+  requestAnimationFrame(()=>{clearNewTaskFields();$("#newTaskName").focus();});
+  setTimeout(clearNewTaskFields,150);
+}
 function closeChecklistModal(){$("#checklistModal").classList.remove("open");$("#checklistModal").setAttribute("aria-hidden","true");}
 function renderTaskManager(){
   const box=$("#taskManagerList"); if(!box)return;
@@ -172,7 +185,7 @@ async function saveManagedTask(row){
   const minutes=readTaskMinutes(row);
   if(!name){showToast("Enter a task name");return;}
   if(minutes<=0){showToast("Set a time greater than 0 minutes");return;}
-  const r=await supabase.from("tasks").update({name,weekday_minutes:minutes,holiday_minutes:minutes}).eq("id",id).eq("user_id",user.id);
+  const r=await supabase.rpc("tracker_update_task",{p_task_id:String(id),p_name:name,p_minutes:minutes});
   if(r.error){showToast(`Could not save: ${r.error.message}`);return;}
   const updated=allTasks.find(t=>String(t.id)===String(id));
   if(updated){updated.name=name;updated.weekday=minutes;updated.holiday=minutes;saveCustomTaskSnapshot(updated);}
@@ -181,6 +194,14 @@ async function saveManagedTask(row){
   renderToday();renderTaskManager();renderSetupSummary();await refreshStats();
   showToast("Task updated");
 }
+function clearNewTaskFields(){
+  const form=$("#addTaskForm");
+  if(form) form.reset();
+  $("#newTaskName").value="";
+  $("#newTaskHours").value="";
+  $("#newTaskMinutes").value="";
+}
+
 async function addManagedTask(e){
   e?.preventDefault();
   const name=$("#newTaskName").value.trim();
@@ -191,26 +212,20 @@ async function addManagedTask(e){
   if(minutes<=0){showToast("Set a time greater than 0 minutes");return;}
   const maxOrder=tasks.reduce((m,t)=>Math.max(m,Number(t.sort_order)||0),0);
   const sort_order=maxOrder+1;
-  const r=await supabase.from("tasks").insert({
-    active:true,
-    name,
-    weekday_minutes:minutes,
-    holiday_minutes:minutes,
-    sort_order
-  }).select("id,name,weekday_minutes,holiday_minutes,sort_order,user_id,active").single();
+  const r=await supabase.rpc("tracker_create_task",{p_name:name,p_minutes:minutes,p_sort_order:sort_order});
   if(r.error){showToast(`Could not add task: ${r.error.message}`);return;}
-  saveCustomTaskSnapshot({id:r.data.id,name:r.data.name,weekday:minutes,holiday:minutes,sort_order,custom:true});
+  const created=r.data && !Array.isArray(r.data) ? r.data : null;
+  const createdId=created?.id ?? `${Date.now()}`;
+  saveCustomTaskSnapshot({id:normalizeTaskId(createdId),name,weekday:minutes,holiday:minutes,sort_order,custom:true});
   if(!localStorage.getItem(`tracker-custom-start-${user.id}`))localStorage.setItem(`tracker-custom-start-${user.id}`,dateKeyInIST());
-  $("#newTaskName").value="";
-  $("#newTaskHours").value="";
-  $("#newTaskMinutes").value="";
+  clearNewTaskFields();
   await loadTasks();
   today=await getDay(today.date);
   renderToday();renderTaskManager();renderSetupSummary();await refreshStats();
   showToast("Task added");
 }
 async function deleteManagedTask(id){
-  const r=await supabase.from("tasks").update({active:false}).eq("id",id).eq("user_id",user.id);
+  const r=await supabase.rpc("tracker_delete_task",{p_task_id:String(id)});
   if(r.error){showToast(`Could not remove task: ${r.error.message}`);return;}
   await loadTasks();
   today=await getDay(today.date);
@@ -222,11 +237,9 @@ async function moveManagedTask(id,delta){
   const idx=ordered.findIndex(x=>String(x.id)===String(id));
   const target=idx+delta;
   if(idx<0||target<0||target>=ordered.length)return;
-  const a=ordered[idx],b=ordered[target],aOrder=a.sort_order,bOrder=b.sort_order;
-  const r1=await supabase.from("tasks").update({sort_order:bOrder}).eq("id",a.id).eq("user_id",user.id);
-  if(r1.error){showToast(`Could not reorder: ${r1.error.message}`);return;}
-  const r2=await supabase.from("tasks").update({sort_order:aOrder}).eq("id",b.id).eq("user_id",user.id);
-  if(r2.error){showToast(`Could not reorder: ${r2.error.message}`);return;}
+  const a=ordered[idx],b=ordered[target];
+  const r=await supabase.rpc("tracker_reorder_tasks",{p_task_id:String(a.id),p_other_task_id:String(b.id)});
+  if(r.error){showToast(`Could not reorder: ${r.error.message}`);return;}
   await loadTasks();
   for(const t of tasks)saveCustomTaskSnapshot(t);
   renderTaskManager();renderToday();renderSetupSummary();showToast("Order updated");
@@ -236,10 +249,127 @@ function openMissionModal(){$("#missionStartDate").value=mission?.start_date||da
 function closeMissionModal(){$("#missionModal").classList.remove("open");$("#missionModal").setAttribute("aria-hidden","true");}
 async function saveMissionStart(e){e.preventDefault();const start=$("#missionStartDate").value;if(!start)return;const r=await supabase.from("missions").update({start_date:start}).eq("id",mission.id).eq("user_id",user.id);if(r.error){showToast(`Could not change mission start: ${r.error.message}`);return;}mission={...mission,start_date:start};closeMissionModal();today=await getDay(dateKeyInIST());renderToday();renderSetupSummary();await refreshStats();showToast("Mission start updated");}
 
+function celebrationKey(kind, date=today?.date){
+  const missionStart=mission?.start_date||"mission";
+  return `tracker-celebration-v1-${user?.id||"anon"}-${missionStart}-${kind}-${date}`;
+}
+function celebrationWasShown(kind,date){return localStorage.getItem(celebrationKey(kind,date))==="1";}
+function markCelebrationShown(kind,date){localStorage.setItem(celebrationKey(kind,date),"1");}
+function buildConfetti(count=95){
+  const box=$("#celebrationConfetti"); if(!box)return;
+  box.innerHTML="";
+  const palette=["#ffd85f","#63d9ae","#7c9cff","#ff79c8","#ff9d5c","#8ce7ff","#ffffff"];
+  for(let i=0;i<count;i++){
+    const el=document.createElement("span");
+    el.className=`confetti-piece ${i%7===0?"ribbon":""}`;
+    el.style.setProperty("--left",`${Math.random()*100}%`);
+    el.style.setProperty("--w",`${5+Math.random()*8}px`);
+    el.style.setProperty("--h",`${7+Math.random()*16}px`);
+    el.style.setProperty("--c",palette[Math.floor(Math.random()*palette.length)]);
+    el.style.setProperty("--dx",`${-260+Math.random()*520}px`);
+    el.style.setProperty("--rot",`${-900+Math.random()*1800}deg`);
+    el.style.setProperty("--dur",`${2.4+Math.random()*2.5}s`);
+    el.style.setProperty("--delay",`${Math.random()*.9}s`);
+    box.appendChild(el);
+  }
+}
+function buildFireworks(count=7){
+  const box=$("#celebrationFireworks"); if(!box)return;
+  box.innerHTML="";
+  const palette=["#ffd85f","#ff79c8","#7c9cff","#63d9ae","#8ce7ff","#ffffff"];
+  for(let i=0;i<count;i++){
+    const fw=document.createElement("div"); fw.className="firework";
+    fw.style.setProperty("--fx",`${12+Math.random()*76}%`);
+    fw.style.setProperty("--fy",`${8+Math.random()*48}%`);
+    fw.style.setProperty("--fdelay",`${Math.random()*.8}s`);
+    for(let j=0;j<14;j++){
+      const dot=document.createElement("i"); dot.className="firework-dot";
+      dot.style.setProperty("--angle",`${j*360/14}deg`);
+      dot.style.setProperty("--fdist",`${48+Math.random()*85}px`);
+      dot.style.setProperty("--fc",palette[Math.floor(Math.random()*palette.length)]);
+      fw.appendChild(dot);
+    }
+    box.appendChild(fw);
+  }
+}
+function buildBalloons(count=13){
+  const box=$("#celebrationBalloons"); if(!box)return;
+  box.innerHTML="";
+  const palette=["#ff79c8","#7c9cff","#63d9ae","#ffd85f","#ff9d5c","#8ce7ff"];
+  for(let i=0;i<count;i++){
+    const b=document.createElement("span"); b.className="balloon";
+    b.style.setProperty("--bx",`${Math.random()*96}%`);
+    b.style.setProperty("--bs",`${30+Math.random()*34}px`);
+    b.style.setProperty("--bc",palette[Math.floor(Math.random()*palette.length)]);
+    b.style.setProperty("--bd",`${5.5+Math.random()*3.5}s`);
+    b.style.setProperty("--bdelay",`${Math.random()*1.4}s`);
+    box.appendChild(b);
+  }
+}
+function openCelebration(kind,data){
+  const overlay=$("#celebrationOverlay"); if(!overlay)return;
+  const isWeekly=kind==="weekly", isFinal=kind==="final";
+  overlay.className=`celebration-overlay open ${isWeekly?"weekly":""} ${isFinal?"final":""}`;
+  overlay.setAttribute("aria-hidden","false");
+  document.body.classList.add("celebration-lock");
+  $("#celebrationIcon").textContent=isFinal?"🏆":isWeekly?"🎂":"🎉";
+  $("#celebrationKicker").textContent=isFinal?"MISSION COMPLETE":isWeekly?"7-DAY MILESTONE":"DAILY VICTORY";
+  $("#celebrationTitle").textContent=isFinal?"100-DAY MISSION COMPLETE!":isWeekly?"WEEK COMPLETE!":`DAY ${data.dayNo} COMPLETE!`;
+  $("#celebrationSubtitle").textContent=isFinal?"YOU FINISHED THE ENTIRE MISSION":isWeekly?"7 DAYS OF CONSISTENCY — 100% COMPLETED":"100% OF TODAY'S WORK DONE";
+  $("#celebrationStats").innerHTML=`<div class="celebration-stat"><b>${data.completedTasks}/${data.totalTasks}</b><span>tasks completed</span></div><div class="celebration-stat"><b>${fmtMinutes(data.completedMinutes)}</b><span>focused time</span></div>` + (isWeekly||isFinal?`<div class="celebration-stat"><b>${isFinal?"100 / 100":"7 / 7"}</b><span>${isFinal?"mission days":"days completed"}</span></div><div class="celebration-stat"><b>${data.dayNo}</b><span>current day</span></div>`:"");
+  $("#celebrationMessage").textContent=isFinal?"You stayed with it for the full 100 days. That is a serious achievement.":isWeekly?"One whole week completed. Take the win — then build the next one.":"You showed up. You finished. Keep the momentum going.";
+  $("#celebrationBadges").innerHTML=isFinal?'<span class="celebration-badge">🏆 100-DAY FINISHER</span><span class="celebration-badge">🔥 CONSISTENCY</span><span class="celebration-badge">💎 DISCIPLINE</span>':isWeekly?'<span class="celebration-badge">🎈 7 DAYS STRONG</span><span class="celebration-badge">🎊 WEEK COMPLETE</span><span class="celebration-badge">🔥 KEEP GOING</span>':'<span class="celebration-badge">✅ 100% DONE</span><span class="celebration-badge">🔥 MOMENTUM</span>';
+  $("#celebrationContinueBtn").textContent=isFinal?"FINISH →":isWeekly?"START NEXT WEEK →":"CONTINUE →";
+  $("#celebrationNext").textContent=isFinal?"THIS MISSION BELONGS TO YOU":isWeekly?`DAY ${Math.min(data.dayNo+1,100)} STARTS THE NEXT CHAPTER`:`DAY ${Math.min(data.dayNo+1,100)} IS NEXT`;
+  buildConfetti(isWeekly?150:isFinal?180:105); buildFireworks(isWeekly?9:isFinal?12:6); buildBalloons(isWeekly?20:0);
+  if(isWeekly){
+    const cake=document.createElement("div");cake.className="party-cake";cake.textContent="🎂";$("#celebrationBalloons").appendChild(cake);
+  }
+  if(isFinal){
+    const cake=document.createElement("div");cake.className="party-cake";cake.textContent="🏆";$("#celebrationBalloons").appendChild(cake);
+  }
+  markCelebrationShown(kind,data.date);
+  setTimeout(()=>$("#celebrationContinueBtn").focus(),50);
+}
+function closeCelebration(){
+  const overlay=$("#celebrationOverlay"); if(!overlay?.classList.contains("open"))return;
+  overlay.classList.add("closing");
+  setTimeout(()=>{overlay.classList.remove("open","closing","weekly","final");overlay.setAttribute("aria-hidden","true");document.body.classList.remove("celebration-lock");$("#celebrationConfetti").innerHTML="";$("#celebrationFireworks").innerHTML="";$("#celebrationBalloons").innerHTML="";},330);
+}
+function isPerfectRow(row){return !!row && row.totalTasks>0 && row.percent===100;}
+function weekNumberForDay(dayNo){return Math.floor((dayNo-1)/7)+1;}
+function sevenDayWeekIsComplete(dayNo){
+  if(dayNo<7)return false;
+  const startDay=dayNo-weekNumberForDay(dayNo)*0-6;
+  const startIndex=dayNo-6;
+  for(let i=startIndex;i<=dayNo;i++){
+    const date=addDays(mission.start_date,i-1);
+    const row=(date===today.date?today:history.find(x=>x.date===date));
+    if(!isPerfectRow(row))return false;
+  }
+  return true;
+}
+async function maybeCelebratePerfectDay(previousPercent){
+  if(!today || today.totalTasks===0 || today.percent<100 || previousPercent>=100)return;
+  const dayNo=missionDayNumber(today.date); if(dayNo<1||dayNo>100)return;
+  const base={...today,dayNo};
+  if(dayNo===100){
+    if(!celebrationWasShown("final",today.date))openCelebration("final",base);
+    return;
+  }
+  if(dayNo%7===0 && sevenDayWeekIsComplete(dayNo)){
+    if(!celebrationWasShown(`weekly-${weekNumberForDay(dayNo)}`,today.date))openCelebration("weekly",base);
+    return;
+  }
+  if(!celebrationWasShown("daily",today.date))openCelebration("daily",base);
+}
+
 async function toggleTask(t,completed){
+  const previousPercent=today.percent;
   const r=await supabase.from("daily_tasks").upsert({user_id:user.id,task_date:today.date,task_id:t.id,completed,updated_at:new Date().toISOString()},{onConflict:"user_id,task_date,task_id"});
   if(r.error){alert(r.error.message); return;}
   today=await getDay(today.date); renderToday(); await refreshStats();
+  await maybeCelebratePerfectDay(previousPercent);
 }
 
 $("#completeDayBtn").addEventListener("click",async()=>{
@@ -338,6 +468,7 @@ async function deleteProject(id){const p=projects.find(x=>String(x.id)===String(
 
 
 $("#manageChecklistBtn").addEventListener("click",openChecklistModal);
+window.addEventListener("pageshow",()=>clearNewTaskFields());
 $("#addTaskForm").addEventListener("submit",addManagedTask);
 $("#closeChecklistBtn").addEventListener("click",closeChecklistModal);
 document.querySelectorAll("[data-close-checklist-modal]").forEach(e=>e.addEventListener("click",closeChecklistModal));
@@ -350,6 +481,10 @@ $("#cancelProjectBtn").addEventListener("click",closeProjectModal);
 $("#projectForm").addEventListener("submit",saveProject);
 document.querySelectorAll("[data-close-project-modal]").forEach(e=>e.addEventListener("click",closeProjectModal));
 document.addEventListener("keydown",e=>{if(e.key!=="Escape")return;if($("#checklistModal").classList.contains("open"))closeChecklistModal();if($("#missionModal").classList.contains("open"))closeMissionModal();if($("#projectModal").classList.contains("open"))closeProjectModal();if($("#dayModal").classList.contains("open"))closeDayModal();});
+
+$("#celebrationContinueBtn").addEventListener("click",closeCelebration);
+$("#celebrationOverlay").addEventListener("click",e=>{if(e.target===$("#celebrationOverlay"))closeCelebration();});
+document.addEventListener("keydown",e=>{if(e.key==="Escape" && $("#celebrationOverlay")?.classList.contains("open"))closeCelebration();});
 
 $("#authForm").addEventListener("submit",async e=>{
   e.preventDefault();
