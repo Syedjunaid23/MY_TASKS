@@ -59,7 +59,7 @@
           <div class="notes"><label for="notes">Daily note / what did you learn?</label><textarea id="notes" placeholder="Write a short reflection, blockers, wins, or tomorrow's priority…"></textarea><button id="saveNotes" class="secondary">Save note</button></div>
         </div>
         <div class="side-stack">
-          <div class="card"><div class="card-head"><div><span class="label">PROGRESS</span><h3>Daily Work</h3></div><span class="chart-help">100 DAYS · HOVER OR CLICK</span></div><div id="chartRangeNav" class="chart-range-nav" aria-label="Jump to mission days"><button type="button" class="chart-range-btn active" data-start="1">1–20</button><button type="button" class="chart-range-btn" data-start="21">21–40</button><button type="button" class="chart-range-btn" data-start="41">41–60</button><button type="button" class="chart-range-btn" data-start="61">61–80</button><button type="button" class="chart-range-btn" data-start="81">81–100</button></div><div class="chart-scroll" id="chartScroll"><div class="mini-chart-wrap"><div id="progressChart" class="bar-chart" role="img" aria-label="Daily work completed chart"></div><div id="chartTooltip" class="chart-tooltip" hidden></div></div></div><div id="chartStats" class="chart-stats"></div></div>
+          <div class="card"><div class="card-head"><div><span class="label">PROGRESS</span><h3>Daily Work</h3></div><span class="chart-help">100 DAYS · SCROLL · HOVER · CLICK</span></div><div class="chart-key"><span><i class="heat-dot heat-1"></i>lighter = fewer hours</span><span><i class="heat-dot heat-5"></i>darker = more hours</span></div><div class="chart-scroll" id="chartScroll"><div class="mini-chart-wrap"><div id="progressChart" class="bar-chart" role="img" aria-label="Daily work completed chart"></div><div id="chartTooltip" class="chart-tooltip" hidden></div></div></div><div id="chartStats" class="chart-stats"></div></div>
           <div class="card productivity"><div class="card-head"><h3>Productivity boosters</h3></div><label><input type="checkbox" id="boosterFocus"> 25–50 min distraction-free focus block</label><label><input type="checkbox" id="boosterPhone"> Phone away / notifications off</label><label><input type="checkbox" id="boosterReview"> 5-minute end-of-day review</label><label><input type="checkbox" id="boosterNext"> Choose tomorrow's #1 task</label><p class="muted small">Boosters are saved locally for today's session.</p></div>
         </div>
       </section>
@@ -92,6 +92,7 @@
         <label class="quick-add-time">Time<input id="newTaskTime" name="task_time_v15" type="text" inputmode="numeric" placeholder="1h 30m" autocomplete="off" required></label>
         <button class="primary quick-add-submit" type="submit">Add task</button>
         <button id="newTaskScheduleToggle" class="secondary quick-schedule-button" type="button" aria-expanded="false"><span>↻</span><span id="newTaskScheduleSummary">Mon–Fri</span><span>⌄</span></button>
+        <button id="newTaskProjectToggle" class="secondary quick-project-button" type="button" aria-expanded="false"><span>@</span><span id="newTaskProjectSummary">No project</span><span>⌄</span></button>
         <div id="newTaskSchedulePanel" class="schedule-popover quick-schedule-panel" hidden>
           <div class="schedule-popover-title">Repeat this task</div>
           <div class="schedule-preset-grid compact">
@@ -101,6 +102,10 @@
             <button type="button" class="schedule-preset" data-new-preset="custom">Choose days</button>
           </div>
           <div id="newTaskCustomDays" class="custom-days" hidden></div>
+        </div>
+        <div id="newTaskProjectPanel" class="schedule-popover quick-project-panel" hidden>
+          <div class="schedule-popover-title">Link this task to a project</div>
+          <div id="newTaskProjectChoices" class="project-picker-list"></div>
         </div>
       </form>
 
@@ -168,6 +173,6 @@
   <footer>Cloud-synced tracker · GitHub Pages ready · Supabase database · automatic daily rollover · exportable backups</footer>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="app.js?v=15"></script>
+  <script src="app.js?v=17"></script>
 </body>
 </html>

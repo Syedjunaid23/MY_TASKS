@@ -1,29 +1,34 @@
-# MY_TASKS V15
+# MY_TASKS v17
 
-V15 is a UX-focused refinement of the existing tracker. It keeps the Projects section, Mission start date, Daily Work chart, history, authentication, and existing Supabase database setup.
+A cloud-synced 100-day study/work tracker built for GitHub Pages + Supabase.
 
-## Main fixes
-- Work-ahead no longer jumps back to today during the background refresh.
-- Mission and Today cards keep their original compact shape; the Today card can grow without stretching the Mission card.
-- Progress ring stays circular instead of becoming an ellipse.
-- Completing a day is now saved to `completed_days`.
-- Daily task completion remains date-specific; checking a task on one mission day does not automatically check it on another day.
-- Weekly streak is represented as a seven-dot progress strip plus a weekly streak count.
-- Work-ahead navigation uses a compact footer instead of a large cluster of controls.
-- Task creation is simplified to **name + time + Add task**. New tasks repeat Mon-Fri by default.
-- Repeat scheduling is an optional small `↻` control. Weekend schedules expose a weekend time only when needed.
-- Existing task editing remains inline, with Save/Remove and simple ↑/↓ reorder controls.
-- Historical custom-task snapshots retain a task's creation date so newly-created tasks do not retroactively appear on earlier mission days.
-- Daily/weekly/final celebrations remain one-time milestone overlays and no longer cause future-day navigation to reset.
+## V17 changes
 
-## Deployment
-Upload only these four files to the GitHub Pages repository root:
-- index.html
-- app.js
-- styles.css
-- README.md
+- Future/work-ahead view is persisted per signed-in user so switching tabs or reopening the app does not jump back to Day 1.
+- Day completion is tied to the exact mission date.
+- A completed day is automatically reopened if a task is later unchecked, so the button/state stays consistent.
+- Progress graph renders all 100 mission days in one horizontal scroll area with D1–D100 labels.
+- Graph bars use GitHub-style intensity: more completed hours = darker green.
+- Hovering a bar lifts it slightly and shows a glass tooltip with completion, planned time, completed time, and task-by-task minutes.
+- Clicking a bar still opens the normal day detail modal.
+- History cells use the same activity intensity language and remain clickable for all 100 days.
+- Weekly streak remains a 7-day milestone rather than a daily streak.
+- Checklist tasks can optionally be linked to a private project with a compact `@` project picker.
+- Completing a linked task adds its scheduled minutes to that project's target progress.
+- Projects now display live progress such as `2h / 5h` and a compact progress bar.
+- Task setup remains simple: name, time, optional schedule, optional project.
 
-No new SQL is included in V15; it uses the database/RPC setup already applied for V13/V14.
+## Files
 
+For GitHub Pages deployment, upload only:
 
-V16 fixes future-day navigation state, makes all 100 history days openable, adds 1–100 chart range navigation, hover breakdown tooltips, hover lift animation, and explicit future/partial/completed chart colors. No new SQL is required.
+- `index.html`
+- `app.js`
+- `styles.css`
+- `README.md`
+
+## Database update
+
+Run `tasks_permissions_and_custom_v17.sql` once in the Supabase SQL editor after the existing v13 setup. It adds the project link on tasks and stores a stable minute snapshot for completed checklist work.
+
+No frontend build step is required.

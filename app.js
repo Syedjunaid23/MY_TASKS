@@ -79,6 +79,8 @@ async function loadTasks(){
       weekday:Number(t.weekday_minutes)||0,
       holiday:Number(t.holiday_minutes ?? t.weekday_minutes)||0,
       weekendMinutes:Number(t.weekend_minutes ?? t.holiday_minutes ?? t.weekday_minutes)||0,
+      projectId:t.project_id==null?null:String(t.project_id),
+      projectName:t.project_name||null,
       repeatDays:Array.isArray(t.repeat_days)?t.repeat_days.map(Number):[0,1,2,3,4,5,6],
       sort_order:Number(t.sort_order)||0,
       custom:String(t.user_id||"")===String(user.id)
@@ -164,6 +166,7 @@ async function selectMissionDate(date){
   if(n<1||n>100){showToast("Choose a date inside the 100-day mission");return;}
   const token=++viewLoadToken;
   selectedDate=date;
+  if(user) localStorage.setItem(`tracker-selected-date-${user.id}`,date);
   const nextDay=await getDay(date);
   if(token!==viewLoadToken || selectedDate!==date)return;
   today=nextDay;
@@ -183,8 +186,8 @@ function renderToday(){
   $("#todayTasks").textContent=`${today.completedTasks} / ${today.totalTasks} tasks`;
   $("#todayMinutes").textContent=`${fmtMinutes(today.completedMinutes)} / ${fmtMinutes(today.totalMinutes)}`;
   $("#notes").value=today.notes||"";
-  $("#completeDayBtn").textContent=(today.completed||today.percent===100)?"✓ Day completed":"Complete day";
-  $("#completeDayBtn").disabled=!!today.completed;
+  $("#completeDayBtn").textContent=today.completed?"✓ Day completed":today.percent===100?"Mark day complete":"Finish all tasks";
+  $("#completeDayBtn").disabled=!!today.completed || today.percent<100 || today.totalTasks===0;
   renderDayNavigator({dayNo,workingAhead,beforeMission,afterMission,realToday});
   $("#checklistTitle").textContent=beforeMission?"Not started":afterMission?"Mission complete":workingAhead?`Day ${dayNo} of 100 · Ahead`:`Day ${dayNo} of 100`;
   const list=$("#taskList"); list.innerHTML="";
@@ -193,7 +196,7 @@ function renderToday(){
   if(!today.tasks.length){list.innerHTML=`<div class="projects-empty"><b>Your daily checklist is empty.</b><span>Click ⚙ Edit checklist and add your own tasks and times.</span></div>`;renderSetupSummary();return;}
   today.tasks.forEach(t=>{
     const row=document.createElement("label"); row.className=`task ${t.completed?"done":""}`;
-    row.innerHTML=`<input type="checkbox" ${t.completed?"checked":""}><span class="task-name">${escapeHtml(t.name)}</span><span class="minutes">${fmtMinutes(t.minutes)}</span>`;
+    row.innerHTML=`<input type="checkbox" ${t.completed?"checked":""}><span class="task-name">${escapeHtml(t.name)}${t.projectName?` <span class="task-project-badge">@ ${escapeHtml(t.projectName)}</span>`:""}</span><span class="minutes">${fmtMinutes(t.minutes)}</span>`;
     row.querySelector("input").addEventListener("change",e=>toggleTask(t,e.target.checked)); list.appendChild(row);
   });
 }
@@ -207,6 +210,7 @@ function renderSetupSummary(){
 function openChecklistModal(){
   clearNewTaskFields();
   renderTaskManager();
+  window.refreshNewTaskProjectPicker?.();
   $("#checklistModal").classList.add("open");
   $("#checklistModal").setAttribute("aria-hidden","false");
   requestAnimationFrame(()=>{clearNewTaskFields();$("#newTaskName").focus();});
@@ -236,99 +240,49 @@ function renderCustomDayChips(container, days, cls="v14-day-chip"){
   const selected=new Set(Array.isArray(days)?days:[]);
   container.innerHTML=DAY_NAMES.map((name,d)=>`<button type="button" class="${cls} ${selected.has(d)?"active":""}" data-day="${d}">${name}</button>`).join("");
 }
+function projectPickerHtml(selectedId){
+  const options=[`<button type="button" class="project-choice ${!selectedId?"active":""}" data-project-choice="">No project</button>`];
+  projects.forEach(p=>options.push(`<button type="button" class="project-choice ${String(selectedId||"")===String(p.id)?"active":""}" data-project-choice="${escapeHtml(p.id)}"><span>@</span>${escapeHtml(p.name)}</button>`));
+  return options.join("");
+}
+function renderProjectChoices(container, selectedId){ if(container) container.innerHTML=projects.length?projectPickerHtml(selectedId):'<div class="projects-empty compact"><b>No projects yet</b><span>Create a project below the checklist first.</span></div>'; }
 function renderTaskManager(){
   const box=$("#taskManagerList"); if(!box)return;
-  if(!tasks.length){
-    box.innerHTML='<div class="manager-empty"><b>No tasks yet</b><span>Add your first task above. Tasks repeat Mon–Fri by default.</span></div>';
-    const label=$("#taskCountLabel"); if(label) label.textContent="0 tasks";
-    return;
-  }
+  if(!tasks.length){box.innerHTML='<div class="manager-empty"><b>No tasks yet</b><span>Add your first task above. Tasks repeat Mon–Fri by default.</span></div>'; const label=$("#taskCountLabel"); if(label) label.textContent="0 tasks"; return;}
   box.innerHTML=tasks.map((t,i)=>{
-    const days=Array.isArray(t.repeatDays)?t.repeatDays:[1,2,3,4,5];
-    const hasWeekend=days.includes(0)||days.includes(6);
-    return `<div class="task-manager-row" data-task-id="${escapeHtml(t.id)}">
+    const days=Array.isArray(t.repeatDays)?t.repeatDays:[1,2,3,4,5]; const hasWeekend=days.includes(0)||days.includes(6);
+    return `<div class="task-manager-row" data-task-id="${escapeHtml(t.id)}" data-project-id="${escapeHtml(t.projectId||"")}">
       <div class="task-manager-mainline">
         <input class="task-manager-name" value="${escapeHtml(t.name)}" maxlength="100" aria-label="Task name" autocomplete="off">
         <input class="task-weekday-time compact-time" type="text" inputmode="numeric" value="${formatTimeInput(t.weekday)}" placeholder="1h" aria-label="Task time" autocomplete="off">
+        <button class="secondary schedule-pill task-project-toggle" type="button" aria-expanded="false">@ <span>${escapeHtml(t.projectName||"No project")}</span></button>
         <button class="secondary schedule-pill task-schedule-toggle" type="button" aria-expanded="false">↻ <span>${escapeHtml(scheduleSummary(days))}</span></button>
         <button class="secondary task-delete" type="button" aria-label="Remove task">Remove</button>
       </div>
       <div class="task-manager-subline">
         <span class="task-mini-status">${hasWeekend?"Weekend enabled":"Weekdays"}</span>
         <label class="weekend-time-field" ${hasWeekend?"":"hidden"}>Weekend <input class="task-weekend-time" type="text" inputmode="numeric" value="${formatTimeInput(t.weekendMinutes)}" placeholder="1h" aria-label="Weekend time" autocomplete="off"></label>
-        <div class="task-manager-row-actions">
-          <button class="secondary task-up" type="button" ${i===0?'disabled':''} aria-label="Move up">↑</button>
-          <button class="secondary task-down" type="button" ${i===tasks.length-1?'disabled':''} aria-label="Move down">↓</button>
-          <button class="primary task-save" type="button">Save</button>
-        </div>
+        <div class="task-manager-row-actions"><button class="secondary task-up" type="button" ${i===0?'disabled':''}>↑</button><button class="secondary task-down" type="button" ${i===tasks.length-1?'disabled':''}>↓</button><button class="primary task-save" type="button">Save</button></div>
       </div>
-      <div class="schedule-popover task-schedule-panel" hidden>
-        <div class="schedule-popover-title">Repeat this task</div>
-        <div class="schedule-preset-grid compact">
-          <button type="button" class="schedule-preset" data-schedule-preset="weekdays">Mon–Fri</button>
-          <button type="button" class="schedule-preset" data-schedule-preset="weekends">Sat–Sun</button>
-          <button type="button" class="schedule-preset" data-schedule-preset="every">Every day</button>
-          <button type="button" class="schedule-preset" data-schedule-preset="custom">Choose days</button>
-        </div>
-        <div class="custom-days" hidden></div>
-      </div>
+      <div class="schedule-popover task-schedule-panel" hidden><div class="schedule-popover-title">Repeat this task</div><div class="schedule-preset-grid compact"><button type="button" class="schedule-preset" data-schedule-preset="weekdays">Mon–Fri</button><button type="button" class="schedule-preset" data-schedule-preset="weekends">Sat–Sun</button><button type="button" class="schedule-preset" data-schedule-preset="every">Every day</button><button type="button" class="schedule-preset" data-schedule-preset="custom">Choose days</button></div><div class="custom-days" hidden></div></div>
+      <div class="schedule-popover task-project-panel" hidden><div class="schedule-popover-title">Link to a project</div><div class="project-picker-list"></div></div>
     </div>`;
   }).join("");
-
   const label=$("#taskCountLabel"); if(label) label.textContent=`${tasks.length} task${tasks.length===1?"":"s"}`;
-
   box.querySelectorAll(".task-save").forEach(b=>b.addEventListener("click",()=>saveManagedTask(b.closest(".task-manager-row"))));
   box.querySelectorAll(".task-delete").forEach(b=>b.addEventListener("click",()=>deleteManagedTask(b.closest(".task-manager-row").dataset.taskId)));
   box.querySelectorAll(".task-up").forEach(b=>b.addEventListener("click",()=>moveManagedTask(b.closest(".task-manager-row").dataset.taskId,-1)));
   box.querySelectorAll(".task-down").forEach(b=>b.addEventListener("click",()=>moveManagedTask(b.closest(".task-manager-row").dataset.taskId,1)));
-
   box.querySelectorAll(".task-manager-row").forEach(row=>{
-    const task=tasks.find(t=>String(t.id)===String(row.dataset.taskId));
-    const panel=row.querySelector(".task-schedule-panel");
-    const summary=row.querySelector(".task-schedule-toggle span");
-    const selected=Array.isArray(task?.repeatDays)?task.repeatDays:[1,2,3,4,5];
-    panel.dataset.selectedDays=selected.slice().sort((a,b)=>a-b).join(",");
-    renderCustomDayChips(panel.querySelector(".custom-days"),selected);
-    const key=Object.entries(SCHEDULE_PRESETS).find(([_,v])=>v.join(",")===selected.slice().sort((a,b)=>a-b).join(","))?.[0] || "custom";
-    panel.querySelectorAll(".schedule-preset").forEach(btn=>btn.classList.toggle("active",btn.dataset.schedulePreset===key));
-    panel.querySelector(".custom-days").hidden=key!=="custom";
-
-    row.querySelector(".task-schedule-toggle").addEventListener("click",()=>{
-      const opening=panel.hidden;
-      box.querySelectorAll(".task-schedule-panel").forEach(x=>x.hidden=true);
-      box.querySelectorAll(".task-schedule-toggle").forEach(x=>x.setAttribute("aria-expanded","false"));
-      panel.hidden=!opening;
-      row.querySelector(".task-schedule-toggle").setAttribute("aria-expanded",String(opening));
-    });
-    const syncWeekendField=()=>{
-      const days=(panel.dataset.selectedDays||"").split(",").filter(Boolean).map(Number);
-      const field=row.querySelector(".weekend-time-field");
-      if(field) field.hidden=!(days.includes(0)||days.includes(6));
-    };
-    syncWeekendField();
-    panel.querySelectorAll(".schedule-preset").forEach(btn=>btn.addEventListener("click",()=>{
-      const p=btn.dataset.schedulePreset;
-      if(p!=="custom"){
-        const chosen=SCHEDULE_PRESETS[p].slice();
-        panel.dataset.selectedDays=chosen.join(",");
-        renderCustomDayChips(panel.querySelector(".custom-days"),chosen);
-        panel.querySelector(".custom-days").hidden=true;
-        summary.textContent=scheduleSummary(chosen);
-      }else{
-        panel.querySelector(".custom-days").hidden=false;
-      }
-      panel.querySelectorAll(".schedule-preset").forEach(x=>x.classList.toggle("active",x===btn));
-      syncWeekendField();
-    }));
-    panel.querySelector(".custom-days").addEventListener("click",e=>{
-      const chip=e.target.closest(".v14-day-chip"); if(!chip)return;
-      chip.classList.toggle("active");
-      const chosen=[...panel.querySelectorAll(".v14-day-chip.active")].map(x=>Number(x.dataset.day)).sort((a,b)=>a-b);
-      panel.dataset.selectedDays=chosen.join(",");
-      summary.textContent=scheduleSummary(chosen);
-      panel.querySelectorAll(".schedule-preset").forEach(x=>x.classList.toggle("active",x.dataset.schedulePreset==="custom"));
-      syncWeekendField();
-    });
+    const task=tasks.find(t=>String(t.id)===String(row.dataset.taskId)); const panel=row.querySelector(".task-schedule-panel"); const summary=row.querySelector(".task-schedule-toggle span"); const selected=Array.isArray(task?.repeatDays)?task.repeatDays:[1,2,3,4,5];
+    panel.dataset.selectedDays=selected.slice().sort((a,b)=>a-b).join(","); renderCustomDayChips(panel.querySelector(".custom-days"),selected); const key=Object.entries(SCHEDULE_PRESETS).find(([_,v])=>v.join(",")==selected.slice().sort((a,b)=>a-b).join(","))?.[0]||"custom"; panel.querySelectorAll(".schedule-preset").forEach(btn=>btn.classList.toggle("active",btn.dataset.schedulePreset===key)); panel.querySelector(".custom-days").hidden=key!=="custom";
+    row.querySelector(".task-schedule-toggle").addEventListener("click",()=>{const opening=panel.hidden;document.querySelectorAll(".task-schedule-panel,.task-project-panel").forEach(x=>x.hidden=true);panel.hidden=!opening;row.querySelector(".task-schedule-toggle").setAttribute("aria-expanded",String(opening));});
+    const syncWeekendField=()=>{const days=(panel.dataset.selectedDays||"").split(",").filter(Boolean).map(Number),field=row.querySelector(".weekend-time-field");if(field)field.hidden=!(days.includes(0)||days.includes(6));}; syncWeekendField();
+    panel.querySelectorAll(".schedule-preset").forEach(btn=>btn.addEventListener("click",()=>{const p=btn.dataset.schedulePreset;if(p!=="custom"){const chosen=SCHEDULE_PRESETS[p].slice();panel.dataset.selectedDays=chosen.join(",");renderCustomDayChips(panel.querySelector(".custom-days"),chosen);panel.querySelector(".custom-days").hidden=true;summary.textContent=scheduleSummary(chosen);}else panel.querySelector(".custom-days").hidden=false;panel.querySelectorAll(".schedule-preset").forEach(x=>x.classList.toggle("active",x===btn));syncWeekendField();}));
+    panel.querySelector(".custom-days").addEventListener("click",e=>{const chip=e.target.closest(".v14-day-chip");if(!chip)return;chip.classList.toggle("active");const chosen=[...panel.querySelectorAll(".v14-day-chip.active")].map(x=>Number(x.dataset.day)).sort((a,b)=>a-b);panel.dataset.selectedDays=chosen.join(",");summary.textContent=scheduleSummary(chosen);panel.querySelectorAll(".schedule-preset").forEach(x=>x.classList.toggle("active",x.dataset.schedulePreset==="custom"));syncWeekendField();});
+    const projectPanel=row.querySelector(".task-project-panel"), projectButton=row.querySelector(".task-project-toggle"), projectSummary=projectButton.querySelector("span"); projectPanel.querySelector(".project-picker-list").innerHTML=projects.length?projectPickerHtml(task?.projectId):'<div class="projects-empty compact"><b>No projects yet</b><span>Create one in Projects first.</span></div>';
+    projectButton.addEventListener("click",()=>{const opening=projectPanel.hidden;document.querySelectorAll(".task-schedule-panel,.task-project-panel").forEach(x=>x.hidden=true);projectPanel.hidden=!opening;projectButton.setAttribute("aria-expanded",String(opening));});
+    projectPanel.addEventListener("click",e=>{const choice=e.target.closest(".project-choice");if(!choice)return;row.dataset.projectId=choice.dataset.projectChoice||"";const proj=projects.find(p=>String(p.id)===String(row.dataset.projectId));projectSummary.textContent=proj?.name||"No project";projectPanel.hidden=true;projectButton.setAttribute("aria-expanded","false");projectPanel.querySelectorAll(".project-choice").forEach(x=>x.classList.toggle("active",x===choice));});
   });
 }
 function getSelectedRepeatDays(row){
@@ -355,7 +309,7 @@ function saveCustomTaskSnapshot(task){
   const rows=JSON.parse(localStorage.getItem(key)||"{}");
   const keyId=String(task.id);
   const previous=rows[keyId];
-  rows[keyId]={id:task.id,name:task.name,weekday:Number(task.weekday)||0,holiday:Number(task.holiday)||0,weekendMinutes:Number(task.weekendMinutes??task.holiday??task.weekday)||0,repeatDays:Array.isArray(task.repeatDays)?task.repeatDays.slice():[0,1,2,3,4,5,6],sort_order:Number(task.sort_order)||0,createdDate:previous?.createdDate||dateKeyInIST(),custom:true};
+  rows[keyId]={id:task.id,name:task.name,weekday:Number(task.weekday)||0,holiday:Number(task.holiday)||0,weekendMinutes:Number(task.weekendMinutes??task.holiday??task.weekday)||0,projectId:task.projectId??null,projectName:task.projectName||null,repeatDays:Array.isArray(task.repeatDays)?task.repeatDays.slice():[0,1,2,3,4,5,6],sort_order:Number(task.sort_order)||0,createdDate:previous?.createdDate||dateKeyInIST(),custom:true};
   localStorage.setItem(key,JSON.stringify(rows));
 }
 function loadCustomTaskSnapshot(){try{return JSON.parse(localStorage.getItem(`tracker-custom-task-snapshot-${user.id}`)||"{}")}catch{return {}}}
@@ -366,6 +320,7 @@ async function saveManagedTask(row){
   const repeatDays=getSelectedRepeatDays(row);
   const weekendInput=row.querySelector(".task-weekend-time");
   const weekendMinutes=weekendInput?parseTimeInput(weekendInput.value):weekdayMinutes;
+  const projectId=row.dataset.projectId||null;
 
   if(!name){showToast("Enter a task name");return;}
   if(!repeatDays.length){showToast("Choose at least one day");return;}
@@ -374,7 +329,7 @@ async function saveManagedTask(row){
   if(needsWeekday && weekdayMinutes<=0){showToast("Add a task time");return;}
   if(needsWeekend && weekendMinutes<=0){showToast("Add a weekend time");return;}
 
-  const r=await supabase.rpc("tracker_update_task_schedule",{p_task_id:String(id),p_name:name,p_weekday_minutes:weekdayMinutes,p_weekend_minutes:needsWeekend?weekendMinutes:weekdayMinutes,p_repeat_days:repeatDays});
+  const r=await supabase.rpc("tracker_update_task_schedule",{p_task_id:String(id),p_name:name,p_weekday_minutes:weekdayMinutes,p_weekend_minutes:needsWeekend?weekendMinutes:weekdayMinutes,p_repeat_days:repeatDays,p_project_id:projectId});
   if(r.error){showToast(`Could not save: ${r.error.message}`);return;}
   await loadTasks();
   const updated=tasks.find(t=>String(t.id)===String(id));
@@ -397,6 +352,9 @@ function clearNewTaskFields(){
   }
   $("#newTaskScheduleSummary").textContent="Mon–Fri";
   $("#newTaskScheduleToggle")?.setAttribute("aria-expanded","false");
+  const projectPanel=$("#newTaskProjectPanel"); if(projectPanel){projectPanel.hidden=true;projectPanel.dataset.selectedProjectId="";}
+  $("#newTaskProjectSummary").textContent="No project"; window.refreshNewTaskProjectPicker?.();
+  $("#newTaskProjectToggle")?.setAttribute("aria-expanded","false");
 }
 function getNewTaskRepeatDays(){
   return ($("#newTaskSchedulePanel")?.dataset.selectedDays||"1,2,3,4,5").split(",").filter(Boolean).map(Number).sort((a,b)=>a-b);
@@ -406,11 +364,12 @@ async function addManagedTask(e){
   const name=$("#newTaskName").value.trim();
   const minutes=parseTimeInput($("#newTaskTime").value);
   const repeatDays=getNewTaskRepeatDays();
+  const projectId=$("#newTaskProjectPanel")?.dataset.selectedProjectId || null;
   if(!name){showToast("Give the task a name");$("#newTaskName")?.focus();return;}
   if(minutes<=0){showToast("Add the time for this task");$("#newTaskTime")?.focus();return;}
   if(!repeatDays.length){showToast("Choose at least one day");return;}
   const maxOrder=tasks.reduce((m,t)=>Math.max(m,Number(t.sort_order)||0),0);
-  const r=await supabase.rpc("tracker_create_task",{p_name:name,p_weekday_minutes:minutes,p_weekend_minutes:minutes,p_repeat_days:repeatDays,p_sort_order:maxOrder+1});
+  const r=await supabase.rpc("tracker_create_task",{p_name:name,p_weekday_minutes:minutes,p_weekend_minutes:minutes,p_repeat_days:repeatDays,p_sort_order:maxOrder+1,p_project_id:projectId});
   if(r.error){showToast(`Could not add task: ${r.error.message}`);return;}
   const createdId=r.data?.id || r.data?.[0]?.id || null;
   if(!localStorage.getItem(`tracker-custom-start-${user.id}`)) localStorage.setItem(`tracker-custom-start-${user.id}`,dateKeyInIST());
@@ -586,11 +545,12 @@ async function toggleTask(t,completed){
   const targetDate=today?.date;
   if(!targetDate)return;
   const previousPercent=today.percent;
-  const r=await supabase.from("daily_tasks").upsert({user_id:user.id,task_date:targetDate,task_id:t.id,completed,updated_at:new Date().toISOString()},{onConflict:"user_id,task_date,task_id"});
+  const r=await supabase.from("daily_tasks").upsert({user_id:user.id,task_date:targetDate,task_id:t.id,completed,minutes_worked:completed?Number(t.minutes)||0:0,updated_at:new Date().toISOString()},{onConflict:"user_id,task_date,task_id"});
   if(r.error){showToast(`Could not save task: ${r.error.message}`);return;}
-  const refreshed=await getDay(targetDate);
+  let refreshed=await getDay(targetDate);
+  if(refreshed.percent<100 && refreshed.completed){await supabase.from("completed_days").delete().eq("user_id",user.id).eq("task_date",targetDate);refreshed=await getDay(targetDate);}
   if(selectedDate!==targetDate)return;
-  today=refreshed; renderToday(); await refreshStats();
+  today=refreshed; renderToday(); await loadProjects(); await refreshStats();
   if(selectedDate===targetDate && today?.date===targetDate) await maybeCelebratePerfectDay(previousPercent);
 }
 
@@ -605,6 +565,7 @@ $("#completeDayBtn").addEventListener("click",async()=>{
   if(selectedDate!==targetDate)return;
   today=refreshed;
   renderToday();
+  await loadProjects();
   await refreshStats();
   showToast("Day completed ✓");
 });
@@ -670,11 +631,13 @@ async function refreshStats(){
 function renderHistory(){
   const box=$("#historyGrid"); box.innerHTML=""; const byDate=Object.fromEntries(history.map(x=>[x.date,x]));
   const realToday=dateKeyInIST();
+  const maxHistoryHeat=Math.max(0,...history.map(x=>Number(x.completedMinutes||0)));
   for(let i=0;i<100;i++){
     const date=addDays(mission.start_date,i), x=byDate[date];
-    const state=x?.percent===100?"done":x?.percent>0?"partial":date>realToday?"planned":"";
-    const cell=document.createElement("div"); cell.className=`day-cell ${state} ${date===selectedDate?"selected":""}`;
-    const label=date>realToday?"Planned":x?x.percent+"% task completion":"Not started";
+    const mins=Number(x?.completedMinutes||0); const state=x?.percent===100?"done":x?.percent>0?"partial":date>realToday?"planned":"";
+    const heat=maxHistoryHeat<=0?"heat-0":`heat-${Math.min(5,Math.max(1,Math.ceil(mins/maxHistoryHeat*5)))}`;
+    const cell=document.createElement("div"); cell.className=`day-cell ${state} ${heat} ${date===selectedDate?"selected":""}`;
+    const label=date>realToday?"Planned":x?`${x.percent}% · ${fmtMinutes(mins)} completed`:"Not started";
     cell.title=`Day ${i+1} · ${date}: ${label}`; cell.innerHTML=`<span>D${i+1}</span>`;
     cell.addEventListener("click",()=>openDayModal(date));
     box.appendChild(cell);
@@ -682,69 +645,32 @@ function renderHistory(){
 }
 
 function dayTaskBreakdownForChart(date,row){
-  const source=row?.tasks?.length ? row.tasks : tasks.filter(t=>isTaskScheduled(t,date)).map(t=>({...t,minutes:taskMinutesForDate(t,date),completed:false}));
-  const items=source.filter(t=>Number(t.minutes)>0).map(t=>({name:t.name,minutes:Number(t.minutes)||0,completed:!!t.completed}));
-  const total=items.reduce((s,t)=>s+t.minutes,0);
-  const done=items.filter(t=>t.completed).reduce((s,t)=>s+t.minutes,0);
-  return {items,total,done};
+  const source=row?.tasks?.length?row.tasks:tasks.filter(t=>isTaskScheduled(t,date)).map(t=>({...t,minutes:taskMinutesForDate(t,date),completed:false}));
+  const items=source.filter(t=>Number(t.minutes)>0).map(t=>({name:t.name,minutes:Number(t.minutes)||0,completed:!!t.completed,projectName:t.projectName||null}));
+  const total=items.reduce((s,t)=>s+t.minutes,0),done=items.filter(t=>t.completed).reduce((s,t)=>s+t.minutes,0);return {items,total,done};
 }
-function showChartTooltip(day, anchorX){
-  const tip=$("#chartTooltip"); if(!tip)return;
-  const breakdown=day.breakdown.items;
-  const lines=breakdown.length?breakdown.map(t=>`<span><b>${escapeHtml(t.name)}</b><em>${fmtMinutes(t.minutes)}</em></span>`).join(""):'<span><b>No task scheduled</b><em>—</em></span>';
-  tip.innerHTML=`<div class="chart-tip-top"><strong>Day ${day.day}</strong><span>${escapeHtml(formatDate(day.date,{day:"numeric",month:"short",year:"numeric"}))}</span></div><div class="chart-tip-total"><b>${day.percent}%</b><span>${fmtMinutes(day.breakdown.total)} planned</span></div><div class="chart-tip-list">${lines}</div>`;
-  tip.hidden=false;
-  const wrap=$(".mini-chart-wrap"), scroll=$("#chartScroll");
-  if(!wrap)return;
-  const localX=Math.max(10,Math.min(wrap.clientWidth-tip.offsetWidth-10,anchorX-(scroll?.scrollLeft||0)-tip.offsetWidth/2));
-  tip.style.left=`${localX}px`;
-  tip.style.top="12px";
+function showChartTooltip(day,anchorX){
+  const tip=$("#chartTooltip");if(!tip)return;
+  const lines=day.breakdown.items.length?day.breakdown.items.map((t,i)=>`<span class="chart-tip-item"><i style="--i:${i}"></i><b>${escapeHtml(t.name)}</b><em>${fmtMinutes(t.minutes)}</em></span>`).join(""):'<span><b>No task scheduled</b><em>—</em></span>';
+  tip.innerHTML=`<div class="chart-tip-top"><strong>Day ${day.day}</strong><span>${escapeHtml(formatDate(day.date,{day:"numeric",month:"short",year:"numeric"}))}</span></div><div class="chart-tip-total"><b>${fmtMinutes(day.breakdown.done)}</b><span>${day.percent}% complete · ${fmtMinutes(day.breakdown.total)} planned</span></div><div class="chart-tip-list">${lines}</div>`;
+  tip.hidden=false;const wrap=$(".mini-chart-wrap"),scroll=$("#chartScroll");if(!wrap)return;const localX=Math.max(8,Math.min(Math.max(8,wrap.clientWidth-tip.offsetWidth-8),anchorX-(scroll?.scrollLeft||0)-tip.offsetWidth/2));tip.style.left=`${localX}px`;tip.style.top="14px";
 }
 function hideChartTooltip(){const tip=$("#chartTooltip");if(tip)tip.hidden=true;}
-function scrollChartToDay(dayNumber){
-  const scroll=$("#chartScroll"); if(!scroll)return;
-  const progress=(Math.max(1,Math.min(100,dayNumber))-1)/99;
-  scroll.scrollTo({left:Math.max(0,progress*(scroll.scrollWidth-scroll.clientWidth)),behavior:"smooth"});
-}
+function heatClass(minutes,max){if(minutes<=0)return"heat-0";const ratio=max>0?minutes/max:0;return`heat-${Math.min(5,Math.max(1,Math.ceil(ratio*5)))}`;}
 function drawChart(){
-  const chart=$("#progressChart"); if(!chart||!mission||!today)return; chart.innerHTML=""; hideChartTooltip();
-  const byDate=Object.fromEntries(history.map(x=>[x.date,x])); byDate[today.date]=today;
-  const days=Array.from({length:100},(_,i)=>{
-    const date=addDays(mission.start_date,i);
-    const row=byDate[date];
-    const breakdown=dayTaskBreakdownForChart(date,row);
-    const percent=row ? Number(row.percent||0) : 0;
-    const completed=!!row?.completed || percent===100;
-    const hasRecord=!!row;
-    const plannedFuture=date>dateKeyInIST();
-    return {day:i+1,date,percent,completed,recorded:hasRecord,data:row,future:plannedFuture,breakdown};
-  });
-  const recorded=days.filter(x=>x.recorded && x.date<=dateKeyInIST()), average=recorded.length?Math.round(recorded.reduce((s,x)=>s+x.percent,0)/recorded.length):0, best=recorded.reduce((a,x)=>!a||x.percent>a.percent?x:a,null);
-  const NS="http://www.w3.org/2000/svg", width=4850,height=330,left=48,right=20,top=22,bottom=52,plotW=width-left-right,plotH=height-top-bottom;
-  const svg=document.createElementNS(NS,"svg"); svg.setAttribute("viewBox",`0 0 ${width} ${height}`); svg.setAttribute("width",width); svg.setAttribute("height",height); svg.setAttribute("role","presentation");
+  const chart=$("#progressChart");if(!chart||!mission||!today)return;chart.innerHTML="";hideChartTooltip();
+  const byDate=Object.fromEntries(history.map(x=>[x.date,x]));byDate[today.date]=today;
+  const days=Array.from({length:100},(_,i)=>{const date=addDays(mission.start_date,i),row=byDate[date],breakdown=dayTaskBreakdownForChart(date,row),percent=row?Number(row.percent||0):0;return{day:i+1,date,percent,recorded:!!row,future:date>dateKeyInIST(),breakdown};});
+  const maxMinutes=Math.max(0,...days.map(x=>x.breakdown.done));const recorded=days.filter(x=>x.recorded&&x.date<=dateKeyInIST()),average=recorded.length?Math.round(recorded.reduce((s,x)=>s+x.percent,0)/recorded.length):0,best=recorded.reduce((a,x)=>!a||x.percent>a.percent?x:a,null);
+  const NS="http://www.w3.org/2000/svg",width=3600,height=340,left=46,right=22,top=24,bottom=58,plotW=width-left-right,plotH=height-top-bottom;const svg=document.createElementNS(NS,"svg");svg.setAttribute("viewBox",`0 0 ${width} ${height}`);svg.setAttribute("width",width);svg.setAttribute("height",height);
   const add=(tag,attrs={},text="")=>{const e=document.createElementNS(NS,tag);Object.entries(attrs).forEach(([k,v])=>e.setAttribute(k,v));if(text)e.textContent=text;svg.appendChild(e);return e;};
-  [100,75,50,25,0].forEach(v=>{const y=top+plotH*(1-v/100);add("line",{x1:left,y1:y,x2:width-right,y2:y,class:"chart-grid"});add("text",{x:left-8,y:y+4,class:"chart-axis chart-y"},`${v}%`);});
-  days.forEach((p,i)=>{
-    const slot=plotW/100,x=left+i*slot+slot*.18,barW=Math.max(14,slot*.64),clamped=Math.max(0,Math.min(100,p.percent)),barH=plotH*clamped/100,y=top+plotH-barH;
-    add("rect",{x,y:top,width:barW,height:plotH,rx:5,class:"chart-bar-track"});
-    const state=p.percent>=100?"complete":p.percent>0?"partial":p.future&&!p.recorded?"future":"empty";
-    const bar=add("rect",{x,y:y+(barH<3?plotH-3:0),width:barW,height:Math.max(3,barH),rx:5,class:`chart-bar ${state} ${p.date===today.date?"selected-day":""}`});
-    bar.style.cursor="pointer";
-    const handleEnter=()=>{bar.classList.add("lifted");showChartTooltip(p,x+barW/2);};
-    const handleLeave=()=>{bar.classList.remove("lifted");hideChartTooltip();};
-    bar.addEventListener("mouseenter",handleEnter); bar.addEventListener("mouseleave",handleLeave); bar.addEventListener("focus",handleEnter); bar.addEventListener("blur",handleLeave);
-    bar.addEventListener("click",()=>openDayModal(p.date));
-    if(p.percent>0)add("text",{x:x+barW/2,y:Math.max(top+12,y-6),class:"chart-value"},`${p.percent}%`);
-    if(i===0 || (i+1)%10===0 || i===99)add("text",{x:x+barW/2,y:height-16,class:`chart-axis ${p.date===today.date?"today-label":""}`},`D${p.day}`);
-    if(p.date===today.date)add("rect",{x:x-3,y:top-3,width:barW+6,height:plotH+6,rx:7,class:"today-outline"});
+  [100,75,50,25,0].forEach(v=>{const y=top+plotH*(1-v/100);add("line",{x1:left,y1:y,x2:width-right,y2:y,class:"chart-grid"});add("text",{x:left-7,y:y+4,class:"chart-axis chart-y"},`${v}%`);});
+  days.forEach((p,i)=>{const slot=plotW/100,x=left+i*slot+slot*.18,barW=Math.max(16,slot*.64),clamped=Math.max(0,Math.min(100,p.percent)),barH=plotH*clamped/100,y=top+plotH-barH;add("rect",{x,y:top,width:barW,height:plotH,rx:5,class:"chart-bar-track"});const state=p.percent>=100?"complete":p.percent>0?"partial":p.future&&!p.recorded?"future":"empty";const bar=add("rect",{x,y:y+(barH<3?plotH-3:0),width:barW,height:Math.max(3,barH),rx:6,class:`chart-bar ${state} ${heatClass(p.breakdown.done,maxMinutes)} ${p.date===today.date?"selected-day":""}`});
+    const enter=()=>{bar.classList.add("lifted");showChartTooltip(p,x+barW/2);},leave=()=>{bar.classList.remove("lifted");hideChartTooltip();};bar.addEventListener("mouseenter",enter);bar.addEventListener("mouseleave",leave);bar.addEventListener("focus",enter);bar.addEventListener("blur",leave);bar.addEventListener("click",()=>openDayModal(p.date));
+    add("text",{x:x+barW/2,y:height-16,class:`chart-axis ${p.date===today.date?"today-label":""}`},`D${p.day}`);if(p.date===today.date)add("rect",{x:x-3,y:top-3,width:barW+6,height:plotH+6,rx:7,class:"today-outline"});
   });
-  chart.appendChild(svg);
-  $("#chartStats").innerHTML=`<div><b>${recorded.length}</b><span>days recorded</span></div><div><b>${average}%</b><span>average work</span></div><div><b>${best?best.percent+"%":"—"}</b><span>${best?"best day · D"+best.day:"best day"}</span></div><div><b>${today.percent}%</b><span>view · D${missionDayNumber(today.date)}</span></div>`;
-  requestAnimationFrame(()=>{
-    document.querySelectorAll("#chartRangeNav .chart-range-btn").forEach(btn=>btn.classList.remove("active"));
-    const d=missionDayNumber(today.date); const start=Math.floor((d-1)/20)*20+1; const active=document.querySelector(`#chartRangeNav .chart-range-btn[data-start="${start}"]`); active?.classList.add("active");
-    const scroll=$("#chartScroll"); if(scroll && d>20){const progress=(d-1)/99;scroll.scrollLeft=Math.max(0,progress*(scroll.scrollWidth-scroll.clientWidth));}
-  });
+  chart.appendChild(svg);$("#chartStats").innerHTML=`<div><b>${recorded.length}</b><span>days recorded</span></div><div><b>${average}%</b><span>average work</span></div><div><b>${best?best.percent+"%":"—"}</b><span>${best?"best day · D"+best.day:"best day"}</span></div><div><b>${today.percent}%</b><span>view · D${missionDayNumber(today.date)}</span></div>`;
+  requestAnimationFrame(()=>{const scroll=$("#chartScroll");if(scroll){const d=missionDayNumber(today.date),progress=(Math.max(1,d)-1)/99;scroll.scrollLeft=Math.max(0,progress*(scroll.scrollWidth-scroll.clientWidth));}});
 }
 
 async function openDayModal(date){
@@ -781,15 +707,20 @@ function loadBoosters(){["Focus","Phone","Review","Next"].forEach(name=>{const k
 
 
 async function loadProjects(){
-  if(!user)return;const r=await supabase.from("projects").select("id,name,target_minutes,created_at,updated_at").eq("user_id",user.id).order("created_at",{ascending:true});
-  if(r.error) throw r.error;projects=r.data||[];renderProjects();
+  if(!user)return;
+  const r=await supabase.from("projects").select("id,name,target_minutes,created_at,updated_at").eq("user_id",user.id).order("created_at",{ascending:true});
+  if(r.error) throw r.error;
+  const dt=await supabase.from("daily_tasks").select("task_id,completed,minutes_worked").eq("user_id",user.id).eq("completed",true);
+  const progressRows=dt.error?[]:(dt.data||[]); const taskMap=Object.fromEntries(allTasks.map(t=>[String(t.id),t])); const progressByProject={};
+  progressRows.forEach(row=>{const task=taskMap[String(row.task_id)];if(task?.projectId){progressByProject[String(task.projectId)]=(progressByProject[String(task.projectId)]||0)+Number(row.minutes_worked||0);}});
+  projects=(r.data||[]).map(p=>({...p,completed_minutes:progressByProject[String(p.id)]||0})); renderProjects(); window.refreshNewTaskProjectPicker?.();
 }
 function fmtProjectTime(m){m=Math.max(0,Number(m)||0);const h=Math.floor(m/60),mins=m%60;if(h&&mins)return `${h}h ${mins}m`;if(h)return `${h}h`;return `${mins}m`;}
-function renderProjects(){const list=$("#projectsList");if(!list)return;if(!projects.length){list.innerHTML='<div class="projects-empty"><b>No projects yet</b><span>Create your own private project and set its target time.</span></div>';return;}list.innerHTML=projects.map(p=>`<div class="project-row" data-project-id="${escapeHtml(p.id)}"><div class="project-main"><span class="project-dot"></span><div><b>${escapeHtml(p.name)}</b><span class="project-private">PRIVATE · ONLY YOU</span></div></div><div class="project-meta"><span class="project-meta-label">TARGET TIME</span><strong>${fmtProjectTime(p.target_minutes)}</strong></div><div class="project-actions"><button class="secondary project-edit" type="button">Edit</button><button class="secondary project-delete" type="button">Delete</button></div></div>`).join("");list.querySelectorAll('.project-edit').forEach(b=>b.addEventListener('click',()=>openProjectModal(b.closest('.project-row').dataset.projectId)));list.querySelectorAll('.project-delete').forEach(b=>b.addEventListener('click',()=>deleteProject(b.closest('.project-row').dataset.projectId)));}
-function openProjectModal(id=null){editingProjectId=id;const p=id?projects.find(x=>String(x.id)===String(id)):null;$("#projectModalTitle").textContent=p?"Edit project":"Create new project";$("#projectName").value=p?.name||"";const total=Math.max(0,Number(p?.target_minutes)||0);$("#projectHours").value=Math.floor(total/60);$("#projectMinutes").value=total%60;$("#projectModal").classList.add("open");$("#projectModal").setAttribute("aria-hidden","false");setTimeout(()=>$("#projectName").focus(),0);}
-function closeProjectModal(){editingProjectId=null;$("#projectModal").classList.remove("open");$("#projectModal").setAttribute("aria-hidden","true");}
-async function saveProject(e){e.preventDefault();const name=$("#projectName").value.trim();let hours=Math.max(0,parseInt($("#projectHours").value,10)||0),minutes=Math.max(0,parseInt($("#projectMinutes").value,10)||0);if(minutes>59){hours+=Math.floor(minutes/60);minutes%=60;}const target_minutes=hours*60+minutes;if(!name){showToast("Enter a project name");return;}if(target_minutes<=0){showToast("Set a target time greater than 0 minutes");return;}const btn=$("#projectForm button[type=submit]");btn.disabled=true;try{let r;if(editingProjectId)r=await supabase.from("projects").update({name,target_minutes,updated_at:new Date().toISOString()}).eq("id",editingProjectId).eq("user_id",user.id);else r=await supabase.from("projects").insert({user_id:user.id,name,target_minutes}).select("id,name,target_minutes,created_at,updated_at").single();if(r.error)throw r.error;await loadProjects();const wasEdit=!!editingProjectId;closeProjectModal();showToast(wasEdit?"Project updated":"Project created");}catch(err){showToast(`Could not save project: ${err.message}`);}finally{btn.disabled=false;}}
-async function deleteProject(id){const p=projects.find(x=>String(x.id)===String(id));if(!p)return;const r=await supabase.from("projects").delete().eq("id",id).eq("user_id",user.id);if(r.error){showToast(`Could not delete project: ${r.error.message}`);return;}await loadProjects();showToast("Project deleted");}
+function renderProjects(){const list=$("#projectsList");if(!list)return;if(!projects.length){list.innerHTML='<div class="projects-empty"><b>No projects yet</b><span>Create your own private project and set its target time.</span></div>';return;}list.innerHTML=projects.map(p=>{const pct=Math.min(100,Math.round((Number(p.completed_minutes||0)/Math.max(1,Number(p.target_minutes)||1))*100));return `<div class="project-row" data-project-id="${escapeHtml(p.id)}"><div class="project-main"><span class="project-dot"></span><div><b>${escapeHtml(p.name)}</b><span class="project-private">PRIVATE · ONLY YOU</span></div></div><div class="project-meta"><span class="project-meta-label">PROGRESS</span><strong>${fmtProjectTime(p.completed_minutes)} / ${fmtProjectTime(p.target_minutes)}</strong><div class="project-progress"><span style="width:${pct}%"></span></div><small>${pct}% complete</small></div><div class="project-actions"><button class="secondary project-edit" type="button">Edit</button><button class="secondary project-delete" type="button">Delete</button></div></div>`;}).join("");list.querySelectorAll('.project-edit').forEach(b=>b.addEventListener('click',()=>openProjectModal(b.closest('.project-row').dataset.projectId)));list.querySelectorAll('.project-delete').forEach(b=>b.addEventListener('click',()=>deleteProject(b.closest('.project-row').dataset.projectId)));}
+function openProjectModal(id=null){editingProjectId=id;const p=id?projects.find(x=>String(x.id)===String(id)):null;$("#projectModalTitle").textContent=p?"Edit project":"Create new project";$("#projectName").value=p?.name||"";const total=Math.max(0,Number(p?.target_minutes)||0);$("#projectHours").value=p?Math.floor(total/60):"";$("#projectMinutes").value=p?total%60:"";$("#projectModal").classList.add("open");$("#projectModal").setAttribute("aria-hidden","false");setTimeout(()=>$("#projectName").focus(),0);}
+function closeProjectModal(){$("#projectModal").classList.remove("open");$("#projectModal").setAttribute("aria-hidden","true");editingProjectId=null;}
+async function saveProject(e){e.preventDefault();const name=$("#projectName").value.trim();let hours=Math.max(0,parseInt($("#projectHours").value,10)||0),minutes=Math.max(0,parseInt($("#projectMinutes").value,10)||0);if(minutes>59){hours+=Math.floor(minutes/60);minutes%=60;}const target_minutes=hours*60+minutes;if(!name){showToast("Enter a project name");return;}if(target_minutes<=0){showToast("Set a target time greater than 0 minutes");return;}const wasEdit=!!editingProjectId;const btn=$("#projectForm button[type=submit]");btn.disabled=true;try{let r;if(editingProjectId)r=await supabase.from("projects").update({name,target_minutes,updated_at:new Date().toISOString()}).eq("id",editingProjectId).eq("user_id",user.id);else r=await supabase.from("projects").insert({user_id:user.id,name,target_minutes}).select("id,name,target_minutes,created_at,updated_at").single();if(r.error)throw r.error;await loadProjects();closeProjectModal();showToast(wasEdit?"Project updated":"Project created");renderTaskManager();}catch(err){showToast(`Could not save project: ${err.message}`);}finally{btn.disabled=false;}}
+async function deleteProject(id){const p=projects.find(x=>String(x.id)===String(id));if(!p)return;if(!confirm(`Delete project “${p.name}”? Linked tasks will stay but become unlinked.`))return;const r=await supabase.from("projects").delete().eq("id",id).eq("user_id",user.id);if(r.error){showToast(`Could not delete project: ${r.error.message}`);return;}await loadTasks();await loadProjects();renderTaskManager();today=await getDay(today.date);renderToday();await refreshStats();showToast("Project deleted");}
 
 
 $("#manageChecklistBtn").addEventListener("click",openChecklistModal);
@@ -827,6 +758,14 @@ window.addEventListener("pageshow",()=>clearNewTaskFields());
   });
 })();
 $("#addTaskForm").addEventListener("submit",addManagedTask);
+(function initNewTaskProjectPicker(){
+  const panel=$("#newTaskProjectPanel"),toggle=$("#newTaskProjectToggle"),summary=$("#newTaskProjectSummary"),choices=$("#newTaskProjectChoices");if(!panel||!toggle||!summary||!choices)return;
+  panel.dataset.selectedProjectId="";
+  const refresh=()=>renderProjectChoices(choices,panel.dataset.selectedProjectId||null);
+  toggle.addEventListener("click",()=>{const opening=panel.hidden;document.querySelectorAll(".quick-project-panel,.task-project-panel").forEach(x=>x.hidden=true);panel.hidden=!opening;toggle.setAttribute("aria-expanded",String(opening));refresh();});
+  choices.addEventListener("click",e=>{const choice=e.target.closest(".project-choice");if(!choice)return;panel.dataset.selectedProjectId=choice.dataset.projectChoice||"";summary.textContent=panel.dataset.selectedProjectId?(projects.find(p=>String(p.id)===String(panel.dataset.selectedProjectId))?.name||"Project"):"No project";panel.hidden=true;toggle.setAttribute("aria-expanded","false");refresh();});
+  window.refreshNewTaskProjectPicker=refresh;
+})();
 $("#closeChecklistBtn").addEventListener("click",closeChecklistModal);
 document.querySelectorAll("[data-close-checklist-modal]").forEach(e=>e.addEventListener("click",closeChecklistModal));
 $("#missionSettingsBtn").addEventListener("click",openMissionModal);
@@ -913,8 +852,8 @@ document.querySelectorAll("#chartRangeNav .chart-range-btn").forEach(btn=>btn.ad
 $("#chartScroll")?.addEventListener("scroll",()=>hideChartTooltip());
 
 async function startApp(s){
-  session=s;user=s.user;selectedDate=dateKeyInIST();$("#authScreen").classList.add("hidden");$("#appShell").classList.remove("hidden");
-  try{await ensureMission();await loadTasks();try{await loadProjects();}catch(projectErr){console.error("Projects unavailable",projectErr);projects=[];renderProjects();}today=await getDay(selectedDate);loadBoosters();renderToday();renderSetupSummary();await refreshStats();}
+  session=s;user=s.user;$("#authScreen").classList.add("hidden");$("#appShell").classList.remove("hidden");
+  try{await ensureMission();const realToday=dateKeyInIST();const saved=localStorage.getItem(`tracker-selected-date-${user.id}`);const savedNo=saved?missionDayNumber(saved):null;if(realToday<mission.start_date)selectedDate=mission.start_date;else if(saved && savedNo>=1 && savedNo<=100 && saved>=realToday)selectedDate=saved;else selectedDate=realToday;await loadTasks();try{await loadProjects();}catch(projectErr){console.error("Projects unavailable",projectErr);projects=[];renderProjects();}today=await getDay(selectedDate);loadBoosters();renderToday();renderSetupSummary();await refreshStats();}
   catch(e){console.error(e);alert("Could not load your tracker. "+e.message);}
 }
 function stopApp(){session=null;user=null;mission=null;tasks=[];allTasks=[];customTaskIds=[];projects=[];editingProjectId=null;today=null;selectedDate=null;history=[];$("#appShell").classList.add("hidden");$("#authScreen").classList.remove("hidden");}
