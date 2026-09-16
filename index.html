@@ -64,6 +64,22 @@
         </div>
       </section>
 
+      <section class="card projects-card">
+        <div class="card-head">
+          <div><span class="label">PROJECTS</span><h2>My Projects</h2></div>
+          <button id="newProjectBtn" class="primary small-btn" type="button">＋ New project</button>
+        </div>
+        <div id="projectForm" class="project-form hidden">
+          <div class="project-form-grid">
+            <label>Project name<input id="projectName" type="text" maxlength="100" placeholder="e.g. Revit API Automation" autocomplete="off"></label>
+            <label>Hours<input id="projectHours" type="number" min="0" max="999" step="1" value="0" inputmode="numeric"></label>
+            <label>Minutes<input id="projectMinutes" type="number" min="0" max="59" step="1" value="30" inputmode="numeric"></label>
+          </div>
+          <div class="project-form-actions"><button id="saveProjectBtn" class="primary" type="button">Save project</button><button id="cancelProjectBtn" class="secondary" type="button">Cancel</button></div>
+        </div>
+        <div id="projectList" class="project-list"></div>
+      </section>
+
       <section class="card history-card"><div class="card-head"><div><span class="label">HISTORY</span><h2>100-day record</h2></div><div class="actions"><button id="exportBtn" class="secondary">Export backup</button><label class="secondary file-btn">Import backup<input id="importFile" type="file" accept="application/json"></label></div></div><div id="historyGrid" class="history-grid"></div><div class="legend"><span><i class="dot done"></i> completed</span><span><i class="dot partial"></i> partial</span><span><i class="dot empty"></i> no record</span></div></section>
       <section class="card rules-card"><h3>Your schedule</h3><div class="schedule-cols"><div><b>Normal plan</b><span>Monday–Saturday except 2nd Saturday</span><span>Python 60m · C# 60m · BIM ISO 60m · SUB 30m · OpenFOAM 30m · Git 10m · C++ 10m · Power BI 10m · Godot 10m · Blender 10m · Twinmotion 10m · N8N 10m</span></div><div><b>Holiday plan</b><span>Every Sunday + 2nd Saturday</span><span>Python 2h · C# 60m · BIM ISO 60m · OpenFOAM 30m · C++ 30m · Git 20m · SUB 2h</span></div></div></section>
     </main>

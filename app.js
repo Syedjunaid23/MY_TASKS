@@ -11,6 +11,8 @@ let mission = null;
 let tasks = [];
 let today = null;
 let history = [];
+let projects = [];
+let editingProjectId = null;
 
 const NORMAL_TASKS = [
   ["python", "Python", 60], ["csharp", "C#", 60], ["bimiso", "BIM ISO", 60], ["sub", "SUB", 30],
@@ -20,6 +22,77 @@ const NORMAL_TASKS = [
 const HOLIDAY_NAMES = new Set(["Python", "C#", "BIM ISO", "OpenFOAM", "C++", "Git", "SUB"]);
 
 function fmtMinutes(m){ m=Number(m)||0; return m>=60 ? `${Math.floor(m/60)}h${m%60?` ${m%60}m`:""}` : `${m}m`; }
+
+async function loadProjects(){
+  const r=await supabase.from("projects").select("id,user_id,name,target_minutes,created_at,updated_at").eq("user_id",user.id).order("created_at",{ascending:true});
+  if(r.error) throw r.error;
+  projects=r.data||[];
+  renderProjects();
+}
+
+function resetProjectForm(){
+  editingProjectId=null;
+  $("#projectName").value="";
+  $("#projectHours").value="0";
+  $("#projectMinutes").value="30";
+  $("#saveProjectBtn").textContent="Save project";
+}
+function showProjectForm(project=null){
+  $("#projectForm").classList.remove("hidden");
+  if(project){
+    editingProjectId=project.id;
+    $("#projectName").value=project.name;
+    const mins=Number(project.target_minutes)||0;
+    $("#projectHours").value=Math.floor(mins/60);
+    $("#projectMinutes").value=mins%60;
+    $("#saveProjectBtn").textContent="Update project";
+  }else resetProjectForm();
+  $("#projectName").focus();
+}
+function hideProjectForm(){resetProjectForm();$("#projectForm").classList.add("hidden");}
+
+function renderProjects(){
+  const list=$("#projectList"); if(!list)return;
+  if(!projects.length){list.innerHTML=`<div class="project-empty"><strong>No projects yet</strong><span>Create your first project and set the time you want to spend on it.</span></div>`;return;}
+  list.innerHTML=projects.map(p=>`<div class="project-item" data-project-id="${p.id}">
+    <div class="project-main"><div class="project-name">${escapeHtml(p.name)}</div><div class="project-meta">Target time · ${fmtMinutes(p.target_minutes)}</div></div>
+    <div class="project-actions"><button class="secondary project-edit" type="button">Edit</button><button class="secondary project-delete" type="button">Delete</button></div>
+  </div>`).join("");
+  list.querySelectorAll(".project-edit").forEach(btn=>btn.addEventListener("click",()=>{const p=projects.find(x=>String(x.id)===String(btn.closest(".project-item").dataset.projectId));if(p)showProjectForm(p);}));
+  list.querySelectorAll(".project-delete").forEach(btn=>btn.addEventListener("click",async()=>{
+    const id=btn.closest(".project-item").dataset.projectId;
+    const p=projects.find(x=>String(x.id)===String(id)); if(!p)return;
+    if(!confirm(`Delete project "${p.name}"?`))return;
+    btn.disabled=true;
+    const r=await supabase.from("projects").delete().eq("id",id).eq("user_id",user.id);
+    if(r.error){btn.disabled=false;alert(r.error.message);return;}
+    projects=projects.filter(x=>String(x.id)!==String(id)); renderProjects(); showToast("Project deleted");
+  }));
+}
+
+$("#newProjectBtn").addEventListener("click",()=>showProjectForm());
+$("#cancelProjectBtn").addEventListener("click",hideProjectForm);
+$("#saveProjectBtn").addEventListener("click",async()=>{
+  const name=$("#projectName").value.trim();
+  let hours=Math.max(0,Number.parseInt($("#projectHours").value,10)||0);
+  let minutes=Math.max(0,Number.parseInt($("#projectMinutes").value,10)||0);
+  minutes=Math.min(59,minutes);
+  const target_minutes=hours*60+minutes;
+  if(!name){alert("Enter a project name.");$("#projectName").focus();return;}
+  if(target_minutes<=0){alert("Set a project time greater than 0 minutes.");return;}
+  const btn=$("#saveProjectBtn"); btn.disabled=true;
+  try{
+    let r;
+    if(editingProjectId){
+      r=await supabase.from("projects").update({name,target_minutes,updated_at:new Date().toISOString()}).eq("id",editingProjectId).eq("user_id",user.id).select().single();
+    }else{
+      r=await supabase.from("projects").insert({user_id:user.id,name,target_minutes}).select().single();
+    }
+    if(r.error)throw r.error;
+    await loadProjects(); hideProjectForm(); showToast(editingProjectId?"Project updated":"Project created");
+  }catch(e){alert("Could not save project: "+e.message);}finally{btn.disabled=false;}
+});
+
 function dateKeyInIST(date=new Date()){
   const parts=new Intl.DateTimeFormat("en-CA",{timeZone:"Asia/Kolkata",year:"numeric",month:"2-digit",day:"2-digit"}).formatToParts(date);
   const p=Object.fromEntries(parts.map(x=>[x.type,x.value])); return `${p.year}-${p.month}-${p.day}`;
@@ -270,10 +343,10 @@ $("#signOutBtn").addEventListener("click",()=>supabase.auth.signOut());
 
 async function startApp(s){
   session=s;user=s.user;$("#authScreen").classList.add("hidden");$("#appShell").classList.remove("hidden");
-  try{await ensureMission();await loadTasks();today=await getDay(dateKeyInIST());loadBoosters();renderToday();await refreshStats();}
+  try{await ensureMission();await loadTasks();today=await getDay(dateKeyInIST());loadBoosters();renderToday();await refreshStats();await loadProjects();}
   catch(e){console.error(e);alert("Could not load your tracker. "+e.message);}
 }
-function stopApp(){session=null;user=null;mission=null;tasks=[];today=null;history=[];$("#appShell").classList.add("hidden");$("#authScreen").classList.remove("hidden");}
+function stopApp(){session=null;user=null;mission=null;tasks=[];today=null;history=[];projects=[];editingProjectId=null;$("#appShell").classList.add("hidden");$("#authScreen").classList.remove("hidden");}
 
 supabase.auth.onAuthStateChange(async(_event,s)=>{if(s)await startApp(s);else stopApp();});
 (async()=>{const r=await supabase.auth.getSession();if(r.data.session)await startApp(r.data.session);})();
