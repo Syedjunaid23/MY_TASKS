@@ -89,7 +89,10 @@ $("#saveProjectBtn").addEventListener("click",async()=>{
       r=await supabase.from("projects").insert({user_id:user.id,name,target_minutes}).select().single();
     }
     if(r.error)throw r.error;
-    await loadProjects(); hideProjectForm(); showToast(editingProjectId?"Project updated":"Project created");
+    const wasEditing=!!editingProjectId;
+    await loadProjects();
+    hideProjectForm();
+    showToast(wasEditing?"Project updated":"Project created");
   }catch(e){alert("Could not save project: "+e.message);}finally{btn.disabled=false;}
 });
 
@@ -343,8 +346,28 @@ $("#signOutBtn").addEventListener("click",()=>supabase.auth.signOut());
 
 async function startApp(s){
   session=s;user=s.user;$("#authScreen").classList.add("hidden");$("#appShell").classList.remove("hidden");
-  try{await ensureMission();await loadTasks();today=await getDay(dateKeyInIST());loadBoosters();renderToday();await refreshStats();await loadProjects();}
-  catch(e){console.error(e);alert("Could not load your tracker. "+e.message);}
+  try{
+    // Existing tracker remains independent from the optional Projects feature.
+    await ensureMission();
+    await loadTasks();
+    today=await getDay(dateKeyInIST());
+    loadBoosters();
+    renderToday();
+    await refreshStats();
+
+    // A Projects/RLS problem must never break the existing tracker.
+    try{
+      await loadProjects();
+    }catch(projectError){
+      console.error("Projects load error:",projectError);
+      projects=[];
+      renderProjects();
+      showToast("Projects unavailable — check Supabase permissions");
+    }
+  }catch(e){
+    console.error(e);
+    alert("Could not load your tracker. "+e.message);
+  }
 }
 function stopApp(){session=null;user=null;mission=null;tasks=[];today=null;history=[];projects=[];editingProjectId=null;$("#appShell").classList.add("hidden");$("#authScreen").classList.remove("hidden");}
 
