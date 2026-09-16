@@ -132,15 +132,18 @@ async function getDay(date){
   const dayNo=missionDayNumber(date);
   if(dayNo<1 || dayNo>100) return {date,tasks:[],completedTasks:0,totalTasks:0,completedMinutes:0,totalMinutes:0,percent:0,completed:false,notes:"",isHolidayPlan:false};
   const [dt,nt,ct]=await Promise.all([
-    supabase.from("daily_tasks").select("task_id,completed").eq("user_id",user.id).eq("task_date",date),
+    supabase.from("daily_tasks").select("task_id,completed,minutes_worked,project_id").eq("user_id",user.id).eq("task_date",date),
     supabase.from("daily_notes").select("notes").eq("user_id",user.id).eq("task_date",date).maybeSingle(),
     supabase.from("completed_days").select("completed").eq("user_id",user.id).eq("task_date",date).maybeSingle()
   ]);
   if(dt.error||nt.error||ct.error) throw (dt.error||nt.error||ct.error);
-  const completedMap=Object.fromEntries((dt.data||[]).map(x=>[x.task_id,!!x.completed]));
+  const completedMap=Object.fromEntries((dt.data||[]).map(x=>[String(x.task_id),{completed:!!x.completed,minutesWorked:Number(x.minutes_worked)||0,projectId:x.project_id==null?null:String(x.project_id)}]));
   const holiday=isHoliday(date);
   const weekend=isWeekend(date);
-  const dayTasks=tasks.filter(t=>isTaskScheduled(t,date)).map(t=>({...t,minutes:taskMinutesForDate(t,date),completed:!!completedMap[t.id]}));
+  const dayTasks=tasks.filter(t=>isTaskScheduled(t,date)).map(t=>{
+    const snap=completedMap[String(t.id)]||null;
+    return {...t,minutes:taskMinutesForDate(t,date),completed:!!snap?.completed,snapshotMinutes:snap?.minutesWorked||0,snapshotProjectId:snap?.projectId||null};
+  });
   const completedTasks=dayTasks.filter(t=>t.completed).length;
   const completedMinutes=dayTasks.filter(t=>t.completed).reduce((s,t)=>s+t.minutes,0);
   const totalMinutes=dayTasks.reduce((s,t)=>s+t.minutes,0);
@@ -600,7 +603,15 @@ async function toggleTask(t,completed){
   const targetDate=today?.date;
   if(!targetDate)return;
   const previousPercent=today.percent;
-  const r=await supabase.from("daily_tasks").upsert({user_id:user.id,task_date:targetDate,task_id:t.id,completed,minutes_worked:completed?Number(t.minutes)||0:0,updated_at:new Date().toISOString()},{onConflict:"user_id,task_date,task_id"});
+  const r=await supabase.from("daily_tasks").upsert({
+    user_id:user.id,
+    task_date:targetDate,
+    task_id:t.id,
+    completed,
+    minutes_worked:completed?Number(t.minutes)||0:0,
+    project_id:completed && t.projectId!=null ? Number(t.projectId) : null,
+    updated_at:new Date().toISOString()
+  },{onConflict:"user_id,task_date,task_id"});
   if(r.error){showToast(`Could not save task: ${r.error.message}`);return;}
   try{
     let refreshed=await getDay(targetDate);
@@ -799,8 +810,8 @@ $("#importFile").addEventListener("change",async e=>{
   }catch(err){alert("Could not restore backup: "+err.message);}finally{e.target.value="";}
 });
 
-["Focus","Phone","Review","Next"].forEach(name=>{const key=`booster${name}`,el=$("#"+key);el.addEventListener("change",()=>localStorage.setItem(`tracker-${today?.date}-${key}`,el.checked));});
-function loadBoosters(){["Focus","Phone","Review","Next"].forEach(name=>{const key=`booster${name}`,el=$("#"+key);el.checked=localStorage.getItem(`tracker-${today.date}-${key}`)==="true";});}
+["Focus","Phone","Review","Next"].forEach(name=>{const key=`booster${name}`,el=$("#"+key);if(el) el.addEventListener("change",()=>localStorage.setItem(`tracker-${today?.date}-${key}`,el.checked));});
+function loadBoosters(){["Focus","Phone","Review","Next"].forEach(name=>{const key=`booster${name}`,el=$("#"+key);if(el) el.checked=localStorage.getItem(`tracker-${today.date}-${key}`)==="true";});}
 
 
 function projectStreakFromDates(dateSet){
@@ -813,15 +824,16 @@ async function loadProjects(){
   if(!user)return;
   const r=await supabase.from("projects").select("id,name,target_minutes,created_at,updated_at").eq("user_id",user.id).order("created_at",{ascending:true});
   if(r.error) throw r.error;
-  const dt=await supabase.from("daily_tasks").select("task_date,task_id,completed,minutes_worked").eq("user_id",user.id).eq("completed",true);
+  const dt=await supabase.from("daily_tasks").select("task_date,task_id,completed,minutes_worked,project_id").eq("user_id",user.id).eq("completed",true);
   if(dt.error) throw dt.error;
   const progressByProject={}, activityByProject={}, taskBreakdown={};
   const seen=new Set();
   const taskMap=Object.fromEntries(allTasks.map(t=>[String(t.id),t]));
   (dt.data||[]).forEach(row=>{
     const uniqueKey=`${row.task_date}::${row.task_id}`; if(seen.has(uniqueKey)) return; seen.add(uniqueKey);
-    const task=taskMap[String(row.task_id)]; if(!task?.projectId) return;
-    const pid=String(task.projectId); const mins=Math.max(0,Number(row.minutes_worked)||0);
+    const pid=row.project_id==null?null:String(row.project_id); if(!pid) return;
+    const task=taskMap[String(row.task_id)];
+    const mins=Math.max(0,Number(row.minutes_worked)||0);
     progressByProject[pid]=(progressByProject[pid]||0)+mins;
     (activityByProject[pid] ||= new Set()).add(row.task_date);
     (taskBreakdown[pid] ||= {} )[task.name]=(taskBreakdown[pid][task.name]||0)+mins;
