@@ -1,11 +1,26 @@
-# 100-Day Study Tracker — GitHub Pages + Supabase
+# MY_TASKS — Personal 100-Day Tracker
 
-This version is a static frontend designed for GitHub Pages. Existing tracker progress is stored in Supabase, so the same account can use the tracker from multiple devices. The Projects feature is also stored in a separate Supabase `projects` table and is scoped to the signed-in user.
+This version keeps the existing tracker design while making the checklist and mission user-controlled.
+
+## User-controlled setup
+- Starts with **zero default checklist tasks**.
+- Add your own task names and times.
+- Edit task names and times later.
+- Remove tasks without deleting their existing completion records.
+- Reorder tasks.
+- Projects also start empty and are private to the signed-in account.
+- Choose the 100-day mission start date yourself: tomorrow, next month, or any date.
+- The dashboard calculates Day 1–Day 100 from that chosen start date.
+- Existing daily completion records continue to feed the history and Daily Work chart.
+
+## Supabase
+The frontend uses the existing Supabase project configured in `app.js`. User-owned checklist tasks expect the flexible task fields already discussed for this project (`user_id`, `active`, `weekday_minutes`, `holiday_minutes`, and `sort_order`). No default tasks are inserted by the frontend.
 
 ## Deployment
-1. Put `index.html`, `app.js`, and `styles.css` in the GitHub Pages repository.
-2. Run `projects-migration.sql` once in the Supabase SQL Editor to create the isolated Projects table and its row-level security policies.
-3. Enable GitHub Pages.
-4. Open the Pages URL and sign in with the Supabase Auth account.
+Upload these four files to the GitHub Pages repository:
+- `index.html`
+- `app.js`
+- `styles.css`
+- `README.md`
 
-The browser only contains the Supabase project URL and publishable key. Never put a Supabase secret/service-role key in this repository.
+No SQL file is included in this package.

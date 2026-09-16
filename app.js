@@ -14,88 +14,8 @@ let history = [];
 let projects = [];
 let editingProjectId = null;
 
-const NORMAL_TASKS = [
-  ["python", "Python", 60], ["csharp", "C#", 60], ["bimiso", "BIM ISO", 60], ["sub", "SUB", 30],
-  ["openfoam", "OpenFOAM", 30], ["git", "Git", 10], ["cpp", "C++", 10], ["powerbi", "Power BI", 10],
-  ["godot", "Godot", 10], ["blender", "Blender", 10], ["twinmotion", "Twinmotion", 10], ["n8n", "N8N", 10]
-];
-const HOLIDAY_NAMES = new Set(["Python", "C#", "BIM ISO", "OpenFOAM", "C++", "Git", "SUB"]);
 
 function fmtMinutes(m){ m=Number(m)||0; return m>=60 ? `${Math.floor(m/60)}h${m%60?` ${m%60}m`:""}` : `${m}m`; }
-
-async function loadProjects(){
-  const r=await supabase.from("projects").select("id,user_id,name,target_minutes,created_at,updated_at").eq("user_id",user.id).order("created_at",{ascending:true});
-  if(r.error) throw r.error;
-  projects=r.data||[];
-  renderProjects();
-}
-
-function resetProjectForm(){
-  editingProjectId=null;
-  $("#projectName").value="";
-  $("#projectHours").value="0";
-  $("#projectMinutes").value="30";
-  $("#saveProjectBtn").textContent="Save project";
-}
-function showProjectForm(project=null){
-  $("#projectForm").classList.remove("hidden");
-  if(project){
-    editingProjectId=project.id;
-    $("#projectName").value=project.name;
-    const mins=Number(project.target_minutes)||0;
-    $("#projectHours").value=Math.floor(mins/60);
-    $("#projectMinutes").value=mins%60;
-    $("#saveProjectBtn").textContent="Update project";
-  }else resetProjectForm();
-  $("#projectName").focus();
-}
-function hideProjectForm(){resetProjectForm();$("#projectForm").classList.add("hidden");}
-
-function renderProjects(){
-  const list=$("#projectList"); if(!list)return;
-  if(!projects.length){list.innerHTML=`<div class="project-empty"><strong>No projects yet</strong><span>Create your first project and set the time you want to spend on it.</span></div>`;return;}
-  list.innerHTML=projects.map(p=>`<div class="project-item" data-project-id="${p.id}">
-    <div class="project-main"><div class="project-name">${escapeHtml(p.name)}</div><div class="project-meta">Target time · ${fmtMinutes(p.target_minutes)}</div></div>
-    <div class="project-actions"><button class="secondary project-edit" type="button">Edit</button><button class="secondary project-delete" type="button">Delete</button></div>
-  </div>`).join("");
-  list.querySelectorAll(".project-edit").forEach(btn=>btn.addEventListener("click",()=>{const p=projects.find(x=>String(x.id)===String(btn.closest(".project-item").dataset.projectId));if(p)showProjectForm(p);}));
-  list.querySelectorAll(".project-delete").forEach(btn=>btn.addEventListener("click",async()=>{
-    const id=btn.closest(".project-item").dataset.projectId;
-    const p=projects.find(x=>String(x.id)===String(id)); if(!p)return;
-    if(!confirm(`Delete project "${p.name}"?`))return;
-    btn.disabled=true;
-    const r=await supabase.from("projects").delete().eq("id",id).eq("user_id",user.id);
-    if(r.error){btn.disabled=false;alert(r.error.message);return;}
-    projects=projects.filter(x=>String(x.id)!==String(id)); renderProjects(); showToast("Project deleted");
-  }));
-}
-
-$("#newProjectBtn").addEventListener("click",()=>showProjectForm());
-$("#cancelProjectBtn").addEventListener("click",hideProjectForm);
-$("#saveProjectBtn").addEventListener("click",async()=>{
-  const name=$("#projectName").value.trim();
-  let hours=Math.max(0,Number.parseInt($("#projectHours").value,10)||0);
-  let minutes=Math.max(0,Number.parseInt($("#projectMinutes").value,10)||0);
-  minutes=Math.min(59,minutes);
-  const target_minutes=hours*60+minutes;
-  if(!name){alert("Enter a project name.");$("#projectName").focus();return;}
-  if(target_minutes<=0){alert("Set a project time greater than 0 minutes.");return;}
-  const btn=$("#saveProjectBtn"); btn.disabled=true;
-  try{
-    let r;
-    if(editingProjectId){
-      r=await supabase.from("projects").update({name,target_minutes,updated_at:new Date().toISOString()}).eq("id",editingProjectId).eq("user_id",user.id).select().single();
-    }else{
-      r=await supabase.from("projects").insert({user_id:user.id,name,target_minutes}).select().single();
-    }
-    if(r.error)throw r.error;
-    const wasEditing=!!editingProjectId;
-    await loadProjects();
-    hideProjectForm();
-    showToast(wasEditing?"Project updated":"Project created");
-  }catch(e){alert("Could not save project: "+e.message);}finally{btn.disabled=false;}
-});
-
 function dateKeyInIST(date=new Date()){
   const parts=new Intl.DateTimeFormat("en-CA",{timeZone:"Asia/Kolkata",year:"numeric",month:"2-digit",day:"2-digit"}).formatToParts(date);
   const p=Object.fromEntries(parts.map(x=>[x.type,x.value])); return `${p.year}-${p.month}-${p.day}`;
@@ -104,10 +24,10 @@ function dateFromKey(k){ const [y,m,d]=k.split("-").map(Number); return new Date
 function addDays(k,n){ const d=dateFromKey(k); d.setUTCDate(d.getUTCDate()+n); return d.toISOString().slice(0,10); }
 function daysBetween(a,b){ return Math.round((dateFromKey(b)-dateFromKey(a))/86400000); }
 function formatDate(k,opts={weekday:"long",day:"numeric",month:"long",year:"numeric"}){ return dateFromKey(k).toLocaleDateString("en-IN",opts); }
-function isHoliday(k){ const d=dateFromKey(k); const dow=d.getUTCDay(); if(dow===0)return true; if(dow===6){ const day=d.getUTCDate(); return day>=8&&day<=14; } return false; }
+function isHoliday(k){ return false; }
 function missionDayNumber(k){ if(!mission)return null; return daysBetween(mission.start_date,k)+1; }
 function totalMinutesFor(k){ return tasks.filter(t=>isTaskScheduled(t,k)).reduce((s,t)=>s+Number(t.minutes),0); }
-function isTaskScheduled(t,k){ return isHoliday(k) ? HOLIDAY_NAMES.has(t.name) : true; }
+function isTaskScheduled(t,k){ return t.active!==false; }
 
 function showToast(msg){ const t=$("#toast"); t.textContent=msg; t.classList.add("show"); setTimeout(()=>t.classList.remove("show"),1800); }
 function setAuthMessage(msg,error=false){ const e=$("#authMessage"); e.textContent=msg; e.className=`auth-message ${error?"error":""}`; }
@@ -129,12 +49,14 @@ async function ensureMission(){
 }
 
 async function loadTasks(){
-  const r=await supabase.from("tasks").select("id,name,weekday_minutes,holiday_minutes,sort_order").order("sort_order");
+  const r=await supabase.from("tasks").select("id,name,weekday_minutes,holiday_minutes,sort_order,active,user_id").eq("user_id",user.id).order("sort_order");
   if(r.error) throw r.error;
-  tasks=(r.data||[]).map(t=>({id:t.id,name:t.name,minutes:0,weekday:t.weekday_minutes,holiday:t.holiday_minutes}));
+  tasks=(r.data||[]).filter(t=>t.active!==false).map(t=>({id:t.id,name:t.name,minutes:0,weekday:Number(t.weekday_minutes)||0,holiday:Number(t.holiday_minutes ?? t.weekday_minutes)||0,sort_order:Number(t.sort_order)||0,active:t.active!==false}));
 }
 
 async function getDay(date){
+  const dayNo=missionDayNumber(date);
+  if(dayNo<1 || dayNo>100) return {date,tasks:[],completedTasks:0,totalTasks:0,completedMinutes:0,totalMinutes:0,percent:0,completed:false,notes:"",isHolidayPlan:false};
   const [dt,nt,ct]=await Promise.all([
     supabase.from("daily_tasks").select("task_id,completed").eq("user_id",user.id).eq("task_date",date),
     supabase.from("daily_notes").select("notes").eq("user_id",user.id).eq("task_date",date).maybeSingle(),
@@ -143,7 +65,7 @@ async function getDay(date){
   if(dt.error||nt.error||ct.error) throw (dt.error||nt.error||ct.error);
   const completedMap=Object.fromEntries((dt.data||[]).map(x=>[x.task_id,!!x.completed]));
   const holiday=isHoliday(date);
-  const dayTasks=tasks.filter(t=>holiday?HOLIDAY_NAMES.has(t.name):true).map(t=>({...t,minutes:holiday?t.holiday:t.weekday,completed:!!completedMap[t.id]}));
+  const dayTasks=tasks.filter(t=>isTaskScheduled(t,date)).map(t=>({...t,minutes:holiday?t.holiday:t.weekday,completed:!!completedMap[t.id]}));
   const completedTasks=dayTasks.filter(t=>t.completed).length;
   const completedMinutes=dayTasks.filter(t=>t.completed).reduce((s,t)=>s+t.minutes,0);
   const totalMinutes=dayTasks.reduce((s,t)=>s+t.minutes,0);
@@ -167,7 +89,7 @@ async function getHistory(){
   for(let i=0;i<100;i++){
     const date=addDays(start,i); if(date>end) break;
     const holiday=isHoliday(date);
-    const dayTasks=tasks.filter(t=>holiday?HOLIDAY_NAMES.has(t.name):true).map(t=>({id:t.id,name:t.name,minutes:holiday?t.holiday:t.weekday,completed:!!taskMap[date]?.[t.id]}));
+    const dayTasks=tasks.filter(t=>isTaskScheduled(t,date)).map(t=>({id:t.id,name:t.name,minutes:holiday?t.holiday:t.weekday,completed:!!taskMap[date]?.[t.id]}));
     const totalTasks=dayTasks.length, completedTasks=dayTasks.filter(t=>t.completed).length;
     const totalMinutes=dayTasks.reduce((s,t)=>s+t.minutes,0), completedMinutes=dayTasks.filter(t=>t.completed).reduce((s,t)=>s+t.minutes,0);
     rows.push({date,tasks:dayTasks,totalTasks,completedTasks,totalMinutes,completedMinutes,percent:totalMinutes?Math.round(completedMinutes/totalMinutes*100):0,completed:!!doneMap[date],notes:noteMap[date]||"",isHolidayPlan:holiday});
@@ -175,18 +97,93 @@ async function getHistory(){
   return rows;
 }
 
+
+function renderSetupSummary(){
+  const s=$("#setupChecklistSummary");
+  if(s) s.textContent=tasks.length?`${tasks.length} custom task${tasks.length===1?"":"s"} configured.`:"No tasks yet. Use “Edit checklist” to add your own.";
+  const m=$("#setupMissionSummary");
+  if(m&&mission?.start_date) m.textContent=`Starts ${formatDate(mission.start_date,{day:"numeric",month:"long",year:"numeric"})}.`;
+}
+function openChecklistModal(){
+  renderTaskManager(); $("#checklistModal").classList.add("open"); $("#checklistModal").setAttribute("aria-hidden","false");
+}
+function closeChecklistModal(){ $("#checklistModal").classList.remove("open"); $("#checklistModal").setAttribute("aria-hidden","true"); }
+function renderTaskManager(){
+  const box=$("#taskManagerList"); if(!box)return;
+  if(!tasks.length){ box.innerHTML='<div class="projects-empty"><b>Your checklist is empty</b><span>Add your first task. You decide the name and time.</span></div>'; return; }
+  box.innerHTML=tasks.map((t,i)=>`<div class="task-manager-row" data-task-id="${escapeHtml(t.id)}">
+    <div class="task-manager-top"><input class="task-manager-name" value="${escapeHtml(t.name)}" maxlength="100" aria-label="Task name"><button class="secondary task-delete" type="button">Delete</button></div>
+    <div class="task-time-grid"><label>Daily time<input class="task-weekday-hours" type="number" min="0" max="9999" value="${Math.floor(t.weekday/60)}"><small>hours</small></label><label>Minutes<input class="task-weekday-minutes" type="number" min="0" max="59" value="${t.weekday%60}"><small>minutes</small></label></div>
+    <div class="task-manager-row-actions"><button class="secondary task-up" type="button" ${i===0?'disabled':''}>↑</button><button class="secondary task-down" type="button" ${i===tasks.length-1?'disabled':''}>↓</button><button class="primary task-save" type="button">Save task</button></div>
+  </div>`).join("");
+  box.querySelectorAll('.task-save').forEach(b=>b.addEventListener('click',()=>saveManagedTask(b.closest('.task-manager-row'))));
+  box.querySelectorAll('.task-delete').forEach(b=>b.addEventListener('click',()=>deleteManagedTask(b.closest('.task-manager-row').dataset.taskId)));
+  box.querySelectorAll('.task-up').forEach(b=>b.addEventListener('click',()=>moveManagedTask(b.closest('.task-manager-row').dataset.taskId,-1)));
+  box.querySelectorAll('.task-down').forEach(b=>b.addEventListener('click',()=>moveManagedTask(b.closest('.task-manager-row').dataset.taskId,1)));
+}
+function readTaskTime(row){
+  const h=Math.max(0,parseInt(row.querySelector('.task-weekday-hours').value,10)||0);
+  const m=Math.max(0,parseInt(row.querySelector('.task-weekday-minutes').value,10)||0);
+  return h*60+Math.min(59,m);
+}
+async function saveManagedTask(row){
+  const id=row.dataset.taskId, name=row.querySelector('.task-manager-name').value.trim(), minutes=readTaskTime(row);
+  if(!name){alert('Enter a task name.');return;} if(minutes<=0){alert('Set a time greater than 0 minutes.');return;}
+  const r=await supabase.from('tasks').update({name,weekday_minutes:minutes,holiday_minutes:minutes,active:true}).eq('id',id).eq('user_id',user.id);
+  if(r.error){alert('Could not save task: '+r.error.message);return;}
+  await loadTasks(); renderToday(); renderTaskManager(); renderSetupSummary(); await refreshStats(); showToast('Task updated');
+}
+async function addManagedTask(){
+  const nextOrder=tasks.reduce((m,t)=>Math.max(m,Number(t.sort_order)||0),-1)+1;
+  const name=prompt('Task name'); if(name===null)return; const clean=name.trim(); if(!clean)return;
+  const minsText=prompt('Time in minutes'); if(minsText===null)return; const mins=Math.max(0,parseInt(minsText,10)||0); if(mins<=0){alert('Time must be greater than 0 minutes.');return;}
+  const r=await supabase.from('tasks').insert({user_id:user.id,name:clean,weekday_minutes:mins,holiday_minutes:mins,sort_order:nextOrder,active:true}).select().single();
+  if(r.error){alert('Could not add task: '+r.error.message);return;}
+  await loadTasks(); renderToday(); renderTaskManager(); renderSetupSummary(); await refreshStats(); showToast('Task added');
+}
+async function deleteManagedTask(id){
+  const t=tasks.find(x=>String(x.id)===String(id)); if(!t)return;
+  if(!confirm(`Remove "${t.name}" from your checklist? Existing completion records are kept.`))return;
+  const r=await supabase.from('tasks').update({active:false}).eq('id',id).eq('user_id',user.id);
+  if(r.error){alert('Could not remove task: '+r.error.message);return;}
+  await loadTasks(); renderToday(); renderTaskManager(); renderSetupSummary(); await refreshStats(); showToast('Task removed');
+}
+async function moveManagedTask(id,delta){
+  const ordered=[...tasks].sort((a,b)=>a.sort_order-b.sort_order), idx=ordered.findIndex(x=>String(x.id)===String(id)), target=idx+delta;
+  if(idx<0||target<0||target>=ordered.length)return;
+  const a=ordered[idx], b=ordered[target], aOrder=a.sort_order, bOrder=b.sort_order;
+  const r1=await supabase.from('tasks').update({sort_order:bOrder}).eq('id',a.id).eq('user_id',user.id);
+  if(r1.error){alert('Could not reorder task: '+r1.error.message);return;}
+  const r2=await supabase.from('tasks').update({sort_order:aOrder}).eq('id',b.id).eq('user_id',user.id);
+  if(r2.error){alert('Could not reorder task: '+r2.error.message);return;}
+  await loadTasks(); renderTaskManager(); renderToday(); showToast('Order updated');
+}
+async function saveMissionStart(e){
+  e.preventDefault(); const start=$("#missionStartDate").value; if(!start)return;
+  const r=await supabase.from('missions').update({start_date:start}).eq('id',mission.id).eq('user_id',user.id);
+  if(r.error){alert('Could not change mission start: '+r.error.message);return;}
+  mission={...mission,start_date:start}; $("#missionModal").classList.remove('open'); $("#missionModal").setAttribute('aria-hidden','true');
+  today=await getDay(dateKeyInIST()); renderToday(); renderSetupSummary(); await refreshStats(); showToast('Mission start updated');
+}
+function openMissionModal(){ $("#missionStartDate").value=mission?.start_date||dateKeyInIST(); $("#missionModal").classList.add('open'); $("#missionModal").setAttribute('aria-hidden','false'); }
+function closeMissionModal(){ $("#missionModal").classList.remove('open'); $("#missionModal").setAttribute('aria-hidden','true'); }
+
 function renderToday(){
   const dayNo=missionDayNumber(today.date);
-  $("#planTitle").textContent=today.isHolidayPlan?"Holiday / Sunday Plan":"Normal Working-Day Plan";
-  $("#planBadge").textContent=today.isHolidayPlan?"HOLIDAY":"WORKDAY";
+  const beforeMission=dayNo<1, afterMission=dayNo>100;
+  $("#planTitle").textContent=beforeMission?`Starts ${formatDate(mission.start_date,{day:"numeric",month:"short",year:"numeric"})}`:afterMission?"100-Day Mission Complete":(today.isHolidayPlan?"Holiday / Sunday Plan":"Normal Working-Day Plan");
+  $("#planBadge").textContent=beforeMission?"UPCOMING":afterMission?"FINISHED":(today.isHolidayPlan?"HOLIDAY":"WORKDAY");
   $("#todayPercent").textContent=`${today.percent}%`;
   $(".ring").style.setProperty("--p",`${today.percent}%`);
   $("#todayTasks").textContent=`${today.completedTasks} / ${today.totalTasks} tasks`;
   $("#todayMinutes").textContent=`${fmtMinutes(today.completedMinutes)} / ${fmtMinutes(today.totalMinutes)}`;
   $("#notes").value=today.notes||"";
   $("#completeDayBtn").textContent=today.completed?"✓ Day completed":"Mark day complete";
-  $("#checklistTitle").textContent=`Day ${dayNo} of 100`;
+  $("#checklistTitle").textContent=beforeMission?"Waiting to start":afterMission?"Mission finished":`Day ${dayNo} of 100`;
   const list=$("#taskList"); list.innerHTML="";
+  if(beforeMission){ list.innerHTML=`<div class="projects-empty"><b>Your mission hasn't started yet.</b><span>Choose any start date from the ⚙ Mission button.</span></div>`; renderSetupSummary(); return; }
+  if(afterMission){ list.innerHTML=`<div class="projects-empty"><b>Your 100-day mission is complete.</b><span>You can change the start date if you want to begin another 100-day run.</span></div>`; renderSetupSummary(); return; }
+  if(!today.tasks.length){ list.innerHTML=`<div class="projects-empty"><b>Your checklist is empty.</b><span>Click ⚙ Edit checklist and add your own tasks and times.</span></div>`; renderSetupSummary(); return; }
   today.tasks.forEach(t=>{
     const row=document.createElement("label"); row.className=`task ${t.completed?"done":""}`;
     row.innerHTML=`<input type="checkbox" ${t.completed?"checked":""}><span class="task-name">${escapeHtml(t.name)}</span><span class="minutes">${fmtMinutes(t.minutes)}</span>`;
@@ -283,6 +280,109 @@ $("#importFile").addEventListener("change",async e=>{
 ["Focus","Phone","Review","Next"].forEach(name=>{const key=`booster${name}`,el=$("#"+key);el.addEventListener("change",()=>localStorage.setItem(`tracker-${today?.date}-${key}`,el.checked));});
 function loadBoosters(){["Focus","Phone","Review","Next"].forEach(name=>{const key=`booster${name}`,el=$("#"+key);el.checked=localStorage.getItem(`tracker-${today.date}-${key}`)==="true";});}
 
+
+async function loadProjects(){
+  if(!user)return;
+  const r=await supabase.from("projects").select("id,name,target_minutes,created_at,updated_at").eq("user_id",user.id).order("created_at",{ascending:true});
+  if(r.error) throw r.error;
+  projects=r.data||[];
+  renderProjects();
+}
+
+function fmtProjectTime(m){
+  m=Math.max(0,Number(m)||0);
+  const h=Math.floor(m/60), mins=m%60;
+  if(h && mins)return `${h}h ${mins}m`;
+  if(h)return `${h}h`;
+  return `${mins}m`;
+}
+
+function renderProjects(){
+  const list=$("#projectsList");
+  if(!list)return;
+  if(!projects.length){
+    list.innerHTML=`<div class="projects-empty"><b>No projects yet</b><span>Create your own private project and set its target time.</span></div>`;
+    return;
+  }
+  list.innerHTML=projects.map(p=>`<div class="project-row" data-project-id="${escapeHtml(p.id)}">
+    <div class="project-main"><span class="project-dot"></span><div><b>${escapeHtml(p.name)}</b><span class="project-private">PRIVATE · ONLY YOU</span></div></div>
+    <div class="project-meta"><span class="project-meta-label">TARGET TIME</span><strong>${fmtProjectTime(p.target_minutes)}</strong></div>
+    <div class="project-actions"><button class="secondary project-edit" type="button">Edit</button><button class="secondary project-delete" type="button">Delete</button></div>
+  </div>`).join("");
+  list.querySelectorAll(".project-edit").forEach(btn=>btn.addEventListener("click",()=>openProjectModal(btn.closest(".project-row").dataset.projectId)));
+  list.querySelectorAll(".project-delete").forEach(btn=>btn.addEventListener("click",()=>deleteProject(btn.closest(".project-row").dataset.projectId)));
+}
+
+function openProjectModal(id=null){
+  editingProjectId=id;
+  const p=id?projects.find(x=>String(x.id)===String(id)):null;
+  $("#projectModalTitle").textContent=p?"Edit project":"Create new project";
+  $("#projectName").value=p?.name||"";
+  const total=Math.max(0,Number(p?.target_minutes)||0);
+  $("#projectHours").value=Math.floor(total/60);
+  $("#projectMinutes").value=total%60;
+  $("#projectModal").classList.add("open");
+  $("#projectModal").setAttribute("aria-hidden","false");
+  setTimeout(()=>$("#projectName").focus(),0);
+}
+
+function closeProjectModal(){
+  editingProjectId=null;
+  $("#projectModal").classList.remove("open");
+  $("#projectModal").setAttribute("aria-hidden","true");
+}
+
+async function saveProject(e){
+  e.preventDefault();
+  const name=$("#projectName").value.trim();
+  let hours=Math.max(0,parseInt($("#projectHours").value,10)||0);
+  let minutes=Math.max(0,parseInt($("#projectMinutes").value,10)||0);
+  if(minutes>59){hours+=Math.floor(minutes/60);minutes%=60;}
+  const target_minutes=hours*60+minutes;
+  if(!name){return;}
+  if(target_minutes<=0){alert("Set a target time greater than 0 minutes.");return;}
+  const btn=$("#projectForm button[type=submit]");
+  btn.disabled=true;
+  try{
+    let r;
+    if(editingProjectId){
+      r=await supabase.from("projects").update({name,target_minutes,updated_at:new Date().toISOString()}).eq("id",editingProjectId).eq("user_id",user.id);
+    }else{
+      r=await supabase.from("projects").insert({user_id:user.id,name,target_minutes}).select("id,name,target_minutes,created_at,updated_at").single();
+    }
+    if(r.error)throw r.error;
+    await loadProjects();
+    closeProjectModal();
+    showToast(editingProjectId?"Project updated":"Project created");
+  }catch(err){alert("Could not save project: "+err.message);}
+  finally{btn.disabled=false;}
+}
+
+async function deleteProject(id){
+  const p=projects.find(x=>String(x.id)===String(id));
+  if(!p)return;
+  if(!confirm(`Delete project "${p.name}"?`))return;
+  const r=await supabase.from("projects").delete().eq("id",id).eq("user_id",user.id);
+  if(r.error){alert("Could not delete project: "+r.error.message);return;}
+  await loadProjects();
+  showToast("Project deleted");
+}
+
+$("#newProjectBtn").addEventListener("click",()=>openProjectModal());
+$("#cancelProjectBtn").addEventListener("click",closeProjectModal);
+$("#projectForm").addEventListener("submit",saveProject);
+document.querySelectorAll("[data-close-project-modal]").forEach(e=>e.addEventListener("click",closeProjectModal));
+document.addEventListener("keydown",e=>{if(e.key==="Escape" && $("#projectModal").classList.contains("open"))closeProjectModal();});
+
+$("#manageChecklistBtn").addEventListener("click",openChecklistModal);
+$("#addTaskBtn").addEventListener("click",addManagedTask);
+$("#closeChecklistBtn").addEventListener("click",closeChecklistModal);
+document.querySelectorAll("[data-close-checklist-modal]").forEach(e=>e.addEventListener("click",closeChecklistModal));
+$("#missionSettingsBtn").addEventListener("click",openMissionModal);
+$("#missionForm").addEventListener("submit",saveMissionStart);
+$("#cancelMissionBtn").addEventListener("click",closeMissionModal);
+document.querySelectorAll("[data-close-mission-modal]").forEach(e=>e.addEventListener("click",closeMissionModal));
+
 $("#authForm").addEventListener("submit",async e=>{
   e.preventDefault();
   e.stopPropagation();
@@ -346,30 +446,10 @@ $("#signOutBtn").addEventListener("click",()=>supabase.auth.signOut());
 
 async function startApp(s){
   session=s;user=s.user;$("#authScreen").classList.add("hidden");$("#appShell").classList.remove("hidden");
-  try{
-    // Existing tracker remains independent from the optional Projects feature.
-    await ensureMission();
-    await loadTasks();
-    today=await getDay(dateKeyInIST());
-    loadBoosters();
-    renderToday();
-    await refreshStats();
-
-    // A Projects/RLS problem must never break the existing tracker.
-    try{
-      await loadProjects();
-    }catch(projectError){
-      console.error("Projects load error:",projectError);
-      projects=[];
-      renderProjects();
-      showToast("Projects unavailable — check Supabase permissions");
-    }
-  }catch(e){
-    console.error(e);
-    alert("Could not load your tracker. "+e.message);
-  }
+  try{await ensureMission();await loadTasks();try{await loadProjects();}catch(projectErr){console.error("Projects unavailable",projectErr);projects=[];renderProjects();}today=await getDay(dateKeyInIST());loadBoosters();renderToday();renderSetupSummary();await refreshStats();}
+  catch(e){console.error(e);alert("Could not load your tracker. "+e.message);}
 }
-function stopApp(){session=null;user=null;mission=null;tasks=[];today=null;history=[];projects=[];editingProjectId=null;$("#appShell").classList.add("hidden");$("#authScreen").classList.remove("hidden");}
+function stopApp(){session=null;user=null;mission=null;tasks=[];projects=[];editingProjectId=null;today=null;history=[];$("#appShell").classList.add("hidden");$("#authScreen").classList.remove("hidden");}
 
 supabase.auth.onAuthStateChange(async(_event,s)=>{if(s)await startApp(s);else stopApp();});
 (async()=>{const r=await supabase.auth.getSession();if(r.data.session)await startApp(r.data.session);})();
