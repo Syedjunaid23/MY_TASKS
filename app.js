@@ -52,12 +52,18 @@ async function ensureMission(){
 }
 
 async function loadTasks(){
-  const r=await supabase.from("tasks").select("id,name,weekday_minutes,holiday_minutes,sort_order").order("sort_order");
+  const r=await supabase.from("tasks").select("id,name,weekday_minutes,holiday_minutes,sort_order,user_id,active").order("sort_order");
   if(r.error) throw r.error;
-  allTasks=(r.data||[]).map(t=>({id:t.id,name:t.name,weekday:Number(t.weekday_minutes)||0,holiday:Number(t.holiday_minutes ?? t.weekday_minutes)||0,sort_order:Number(t.sort_order)||0,custom:false}));
-  const stored=JSON.parse(localStorage.getItem(`tracker-custom-task-ids-${user.id}`)||"[]");
-  customTaskIds=Array.isArray(stored)?stored.map(String):[];
-  allTasks.forEach(t=>t.custom=customTaskIds.includes(String(t.id)));
+  allTasks=(r.data||[])
+    .filter(t=>t.active !== false)
+    .map(t=>({
+      id:t.id,
+      name:t.name,
+      weekday:Number(t.weekday_minutes)||0,
+      holiday:Number(t.holiday_minutes ?? t.weekday_minutes)||0,
+      sort_order:Number(t.sort_order)||0,
+      custom:String(t.user_id||"")===String(user.id)
+    }));
   tasks=allTasks.filter(t=>t.custom).sort((a,b)=>a.sort_order-b.sort_order);
 }
 
@@ -98,7 +104,7 @@ async function getHistory(){
   for(let i=0;i<100;i++){
     const date=addDays(start,i); if(date>end) break;
     const useCustom=!!transition && date>=transition;
-    const source=useCustom?customHistoryTasks:allTasks;
+    const source=useCustom?customHistoryTasks:allTasks.filter(t=>!t.custom);
     const holiday=isHoliday(date);
     const dayTasks=source.filter(t=>isTaskScheduled(t,date)).map(t=>({id:t.id,name:t.name,minutes:holiday?t.holiday:t.weekday,completed:!!taskMap[date]?.[t.id]}));
     const totalTasks=dayTasks.length, completedTasks=dayTasks.filter(t=>t.completed).length;
@@ -137,7 +143,7 @@ function renderSetupSummary(){
   const s=$("#setupChecklistSummary"); if(s) s.textContent=tasks.length?`${tasks.length} custom task${tasks.length===1?"":"s"} configured.`:"Your checklist is empty. Add your own tasks.";
   const m=$("#setupMissionSummary"); if(m&&mission?.start_date) m.textContent=`Starts ${formatDate(mission.start_date,{day:"numeric",month:"long",year:"numeric"})}.`;
 }
-function openChecklistModal(){renderTaskManager();$("#checklistModal").classList.add("open");$("#checklistModal").setAttribute("aria-hidden","false");setTimeout(()=>$("#newTaskName").focus(),0);}
+function openChecklistModal(){renderTaskManager();$("#newTaskName").value="";$("#newTaskHours").value="";$("#newTaskMinutes").value="";$("#checklistModal").classList.add("open");$("#checklistModal").setAttribute("aria-hidden","false");setTimeout(()=>$("#newTaskName").focus(),0);}
 function closeChecklistModal(){$("#checklistModal").classList.remove("open");$("#checklistModal").setAttribute("aria-hidden","true");}
 function renderTaskManager(){
   const box=$("#taskManagerList"); if(!box)return;
@@ -153,29 +159,79 @@ function renderTaskManager(){
   box.querySelectorAll('.task-down').forEach(b=>b.addEventListener('click',()=>moveManagedTask(b.closest('.task-manager-row').dataset.taskId,1)));
 }
 function readTaskMinutes(row){const h=Math.max(0,parseInt(row.querySelector('.task-weekday-hours').value,10)||0);const m=Math.max(0,parseInt(row.querySelector('.task-weekday-minutes').value,10)||0);return h*60+Math.min(59,m);}
-function rememberCustomTaskId(id){if(!customTaskIds.includes(String(id)))customTaskIds.push(String(id));localStorage.setItem(`tracker-custom-task-ids-${user.id}`,JSON.stringify(customTaskIds));}
-function saveCustomTaskSnapshot(task){const key=`tracker-custom-task-snapshot-${user.id}`;const rows=JSON.parse(localStorage.getItem(key)||"{}");rows[String(task.id)]={id:task.id,name:task.name,weekday:Number(task.weekday)||0,holiday:Number(task.holiday)||0,sort_order:Number(task.sort_order)||0,custom:true};localStorage.setItem(key,JSON.stringify(rows));}
+function saveCustomTaskSnapshot(task){
+  const key=`tracker-custom-task-snapshot-${user.id}`;
+  const rows=JSON.parse(localStorage.getItem(key)||"{}");
+  rows[String(task.id)]={id:task.id,name:task.name,weekday:Number(task.weekday)||0,holiday:Number(task.holiday)||0,sort_order:Number(task.sort_order)||0,custom:true};
+  localStorage.setItem(key,JSON.stringify(rows));
+}
 function loadCustomTaskSnapshot(){try{return JSON.parse(localStorage.getItem(`tracker-custom-task-snapshot-${user.id}`)||"{}")}catch{return {}}}
 async function saveManagedTask(row){
-  const id=row.dataset.taskId,name=row.querySelector('.task-manager-name').value.trim(),minutes=readTaskMinutes(row);if(!name){showToast("Enter a task name");return;}if(minutes<=0){showToast("Set a time greater than 0 minutes");return;}
-  const r=await supabase.from("tasks").update({name,weekday_minutes:minutes,holiday_minutes:minutes}).eq("id",id);if(r.error){showToast(`Could not save: ${r.error.message}`);return;}
-  rememberCustomTaskId(id);const updated=allTasks.find(t=>String(t.id)===String(id));if(updated){updated.name=name;updated.weekday=minutes;updated.holiday=minutes;updated.custom=true;saveCustomTaskSnapshot(updated);}await loadTasks();today=await getDay(today.date);renderToday();renderTaskManager();renderSetupSummary();await refreshStats();showToast("Task updated");
+  const id=row.dataset.taskId;
+  const name=row.querySelector('.task-manager-name').value.trim();
+  const minutes=readTaskMinutes(row);
+  if(!name){showToast("Enter a task name");return;}
+  if(minutes<=0){showToast("Set a time greater than 0 minutes");return;}
+  const r=await supabase.from("tasks").update({name,weekday_minutes:minutes,holiday_minutes:minutes}).eq("id",id).eq("user_id",user.id);
+  if(r.error){showToast(`Could not save: ${r.error.message}`);return;}
+  const updated=allTasks.find(t=>String(t.id)===String(id));
+  if(updated){updated.name=name;updated.weekday=minutes;updated.holiday=minutes;saveCustomTaskSnapshot(updated);}
+  await loadTasks();
+  today=await getDay(today.date);
+  renderToday();renderTaskManager();renderSetupSummary();await refreshStats();
+  showToast("Task updated");
 }
 async function addManagedTask(e){
-  e?.preventDefault();const name=$("#newTaskName").value.trim();const h=Math.max(0,parseInt($("#newTaskHours").value,10)||0);const m=Math.max(0,parseInt($("#newTaskMinutes").value,10)||0);const minutes=h*60+Math.min(59,m);if(!name){showToast("Enter a task name");return;}if(minutes<=0){showToast("Set a time greater than 0 minutes");return;}
-  const minOrder=tasks.reduce((m,t)=>Math.min(m,Number(t.sort_order)||0),0);const sort_order=minOrder-1;
-  const r=await supabase.from("tasks").insert({name,weekday_minutes:minutes,holiday_minutes:minutes,sort_order}).select("id,name,weekday_minutes,holiday_minutes,sort_order").single();if(r.error){showToast(`Could not add task: ${r.error.message}`);return;}
-  rememberCustomTaskId(r.data.id);saveCustomTaskSnapshot({id:r.data.id,name:clean,weekday:minutes,holiday:minutes,sort_order:sort_order,custom:true});if(!localStorage.getItem(`tracker-custom-start-${user.id}`))localStorage.setItem(`tracker-custom-start-${user.id}`,dateKeyInIST());
-  $("#newTaskName").value="";$("#newTaskHours").value="1";$("#newTaskMinutes").value="0";
-  await loadTasks();today=await getDay(today.date);renderToday();renderTaskManager();renderSetupSummary();await refreshStats();showToast("Task added");
+  e?.preventDefault();
+  const name=$("#newTaskName").value.trim();
+  const h=Math.max(0,parseInt($("#newTaskHours").value,10)||0);
+  const m=Math.max(0,parseInt($("#newTaskMinutes").value,10)||0);
+  const minutes=h*60+Math.min(59,m);
+  if(!name){showToast("Enter a task name");return;}
+  if(minutes<=0){showToast("Set a time greater than 0 minutes");return;}
+  const maxOrder=tasks.reduce((m,t)=>Math.max(m,Number(t.sort_order)||0),0);
+  const sort_order=maxOrder+1;
+  const r=await supabase.from("tasks").insert({
+    active:true,
+    name,
+    weekday_minutes:minutes,
+    holiday_minutes:minutes,
+    sort_order
+  }).select("id,name,weekday_minutes,holiday_minutes,sort_order,user_id,active").single();
+  if(r.error){showToast(`Could not add task: ${r.error.message}`);return;}
+  saveCustomTaskSnapshot({id:r.data.id,name:r.data.name,weekday:minutes,holiday:minutes,sort_order,custom:true});
+  if(!localStorage.getItem(`tracker-custom-start-${user.id}`))localStorage.setItem(`tracker-custom-start-${user.id}`,dateKeyInIST());
+  $("#newTaskName").value="";
+  $("#newTaskHours").value="";
+  $("#newTaskMinutes").value="";
+  await loadTasks();
+  today=await getDay(today.date);
+  renderToday();renderTaskManager();renderSetupSummary();await refreshStats();
+  showToast("Task added");
 }
 async function deleteManagedTask(id){
-  customTaskIds=customTaskIds.filter(x=>String(x)!==String(id));localStorage.setItem(`tracker-custom-task-ids-${user.id}`,JSON.stringify(customTaskIds));await loadTasks();today=await getDay(today.date);renderToday();renderTaskManager();renderSetupSummary();await refreshStats();showToast("Task removed");
+  const r=await supabase.from("tasks").update({active:false}).eq("id",id).eq("user_id",user.id);
+  if(r.error){showToast(`Could not remove task: ${r.error.message}`);return;}
+  await loadTasks();
+  today=await getDay(today.date);
+  renderToday();renderTaskManager();renderSetupSummary();await refreshStats();
+  showToast("Task removed");
 }
 async function moveManagedTask(id,delta){
-  const ordered=[...tasks].sort((a,b)=>a.sort_order-b.sort_order),idx=ordered.findIndex(x=>String(x.id)===String(id)),target=idx+delta;if(idx<0||target<0||target>=ordered.length)return;const a=ordered[idx],b=ordered[target],aOrder=a.sort_order,bOrder=b.sort_order;
-  const r1=await supabase.from("tasks").update({sort_order:bOrder}).eq("id",a.id);if(r1.error){showToast(`Could not reorder: ${r1.error.message}`);return;}const r2=await supabase.from("tasks").update({sort_order:aOrder}).eq("id",b.id);if(r2.error){showToast(`Could not reorder: ${r2.error.message}`);return;}await loadTasks();for(const t of tasks){const snap=loadCustomTaskSnapshot();if(snap[String(t.id)]){snap[String(t.id)].sort_order=t.sort_order;localStorage.setItem(`tracker-custom-task-snapshot-${user.id}`,JSON.stringify(snap));}}renderTaskManager();renderToday();showToast("Order updated");
+  const ordered=[...tasks].sort((a,b)=>a.sort_order-b.sort_order);
+  const idx=ordered.findIndex(x=>String(x.id)===String(id));
+  const target=idx+delta;
+  if(idx<0||target<0||target>=ordered.length)return;
+  const a=ordered[idx],b=ordered[target],aOrder=a.sort_order,bOrder=b.sort_order;
+  const r1=await supabase.from("tasks").update({sort_order:bOrder}).eq("id",a.id).eq("user_id",user.id);
+  if(r1.error){showToast(`Could not reorder: ${r1.error.message}`);return;}
+  const r2=await supabase.from("tasks").update({sort_order:aOrder}).eq("id",b.id).eq("user_id",user.id);
+  if(r2.error){showToast(`Could not reorder: ${r2.error.message}`);return;}
+  await loadTasks();
+  for(const t of tasks)saveCustomTaskSnapshot(t);
+  renderTaskManager();renderToday();renderSetupSummary();showToast("Order updated");
 }
+
 function openMissionModal(){$("#missionStartDate").value=mission?.start_date||dateKeyInIST();$("#missionModal").classList.add("open");$("#missionModal").setAttribute("aria-hidden","false");}
 function closeMissionModal(){$("#missionModal").classList.remove("open");$("#missionModal").setAttribute("aria-hidden","true");}
 async function saveMissionStart(e){e.preventDefault();const start=$("#missionStartDate").value;if(!start)return;const r=await supabase.from("missions").update({start_date:start}).eq("id",mission.id).eq("user_id",user.id);if(r.error){showToast(`Could not change mission start: ${r.error.message}`);return;}mission={...mission,start_date:start};closeMissionModal();today=await getDay(dateKeyInIST());renderToday();renderSetupSummary();await refreshStats();showToast("Mission start updated");}

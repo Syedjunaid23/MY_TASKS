@@ -86,11 +86,11 @@
       <h2 id="checklistModalTitle">Edit checklist</h2>
       <p class="muted project-private-note">Nothing is predefined in your active checklist. Add your own task name and daily time.</p>
       <div id="taskManagerList" class="task-manager-list"></div>
-      <form id="addTaskForm" class="task-add-form">
+      <form id="addTaskForm" class="task-add-form" autocomplete="new-password">
         <div class="task-add-form-grid">
-          <label>Task name<input id="newTaskName" type="text" maxlength="100" placeholder="e.g. Python" required></label>
-          <label>Hours<input id="newTaskHours" type="number" min="0" max="9999" value="1" inputmode="numeric"></label>
-          <label>Minutes<input id="newTaskMinutes" type="number" min="0" max="59" value="0" inputmode="numeric"></label>
+          <label>Task name<input id="newTaskName" type="text" maxlength="100" placeholder="Enter task name" required></label>
+          <label>Hours<input id="newTaskHours" type="number" min="0" max="9999" value="" inputmode="numeric"></label>
+          <label>Minutes<input id="newTaskMinutes" type="number" min="0" max="59" value="" inputmode="numeric"></label>
           <div class="task-add-form-actions"><button class="primary" type="submit">＋ Add task</button></div>
         </div>
       </form>
@@ -122,7 +122,7 @@
       <p class="muted project-private-note">This project is private to your account.</p>
       <form id="projectForm" class="project-form">
         <label>Project name<input id="projectName" type="text" maxlength="100" placeholder="e.g. Revit Automation" required></label>
-        <div class="project-time-grid"><label>Hours<input id="projectHours" type="number" min="0" max="9999" value="0" inputmode="numeric"></label><label>Minutes<input id="projectMinutes" type="number" min="0" max="59" value="0" inputmode="numeric"></label></div>
+        <div class="project-time-grid"><label>Hours<input id="projectHours" type="number" min="0" max="9999" value="" inputmode="numeric"></label><label>Minutes<input id="projectMinutes" type="number" min="0" max="59" value="" inputmode="numeric"></label></div>
         <p class="muted small">Set the total target time for this project. You can edit it later.</p>
         <div class="project-form-actions"><button id="cancelProjectBtn" class="secondary" type="button">Cancel</button><button class="primary" type="submit">Save project</button></div>
       </form>
@@ -135,6 +135,6 @@
   <footer>Cloud-synced tracker · GitHub Pages ready · Supabase database · automatic daily rollover · exportable backups</footer>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="app.js?v=9"></script>
+  <script src="app.js?v=10"></script>
 </body>
 </html>
