@@ -439,3 +439,20 @@ body.celebration-lock{overflow:hidden}
   .day-nav{align-items:flex-start;flex-direction:column}
   .day-nav-actions{width:100%;justify-content:flex-start}
 }
+
+
+/* ===== V16 chart / future-day UX ===== */
+.chart-range-nav{display:flex;gap:6px;flex-wrap:wrap;margin:10px 0 2px}
+.chart-range-btn{border:1px solid rgba(124,156,255,.18);background:#121b29;color:#aebbd0;border-radius:999px;padding:6px 9px;font-size:9px;font-weight:900;cursor:pointer;transition:transform .18s ease,border-color .18s ease,background .18s ease,color .18s ease}
+.chart-range-btn:hover{transform:translateY(-1px);border-color:rgba(124,156,255,.42);color:#fff}
+.chart-range-btn.active{background:rgba(99,217,174,.12);border-color:rgba(99,217,174,.45);color:#73dfb5;box-shadow:0 0 16px rgba(99,217,174,.08)}
+.chart-tooltip{position:absolute;z-index:20;min-width:210px;max-width:270px;padding:10px 11px;border:1px solid rgba(124,156,255,.32);border-radius:13px;background:rgba(9,14,22,.97);box-shadow:0 18px 45px rgba(0,0,0,.38),0 0 0 1px rgba(255,255,255,.02);backdrop-filter:blur(10px);pointer-events:none;animation:chartTipIn .16s ease both}
+.chart-tip-top{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:6px}.chart-tip-top strong{font-size:11px;color:#eef4fb}.chart-tip-top span{font-size:9px;color:#7d8ca2}
+.chart-tip-total{display:flex;align-items:baseline;justify-content:space-between;gap:10px;padding:7px 0;border-top:1px solid rgba(255,255,255,.06);border-bottom:1px solid rgba(255,255,255,.06)}.chart-tip-total b{font-size:19px;color:#69e2b4}.chart-tip-total span{font-size:9px;color:#9aa8ba}
+.chart-tip-list{display:grid;gap:4px;margin-top:7px}.chart-tip-list span{display:flex;justify-content:space-between;gap:10px;font-size:10px;color:#bdc7d6}.chart-tip-list em{font-style:normal;color:#fff;font-weight:800}
+@keyframes chartTipIn{from{opacity:0;transform:translateY(4px) scale(.98)}to{opacity:1;transform:none}}
+.mini-chart-wrap{position:relative}
+.chart-bar{transform-origin:center bottom;transition:transform .16s cubic-bezier(.2,.8,.2,1),filter .16s ease,opacity .16s ease}.chart-bar.lifted{transform:translateY(-6px) scaleY(1.018);filter:brightness(1.18);stroke:#dffcf1;stroke-width:1.2}.chart-bar.complete{fill:#63d9ae}.chart-bar.partial{fill:#d0a33a}.chart-bar.empty{fill:#3b4a60}.chart-bar.future{fill:#273446;opacity:.9}.chart-bar.selected-day{stroke:#7c9cff;stroke-width:1.5;filter:drop-shadow(0 0 6px rgba(124,156,255,.32))}
+.day-cell{transition:transform .18s ease,box-shadow .18s ease,border-color .18s ease,background .18s ease}.day-cell.planned{background:#1b2635;border-color:#2d3b50}.day-cell.selected{outline:2px solid #7c9cff;box-shadow:0 0 0 3px rgba(124,156,255,.1)}.day-cell:hover{transform:translateY(-2px)}
+.ring{aspect-ratio:1/1;width:105px;height:auto;flex:0 0 105px}.today-progress>.ring{flex-basis:105px}.ring:after{aspect-ratio:1/1;width:82px;height:auto}
+@media(max-width:650px){.ring{flex-basis:88px;width:88px}.today-progress>.ring{flex-basis:88px}.ring:after{width:68px}.chart-tooltip{min-width:180px;max-width:230px}}

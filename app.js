@@ -11,6 +11,7 @@ let mission = null;
 let tasks = [];
 let today = null;
 let selectedDate = null;
+let viewLoadToken = 0;
 let history = [];
 let allTasks = [];
 let customTaskIds = [];
@@ -161,8 +162,11 @@ function renderDayNavigator({dayNo,workingAhead,beforeMission,afterMission,realT
 async function selectMissionDate(date){
   const n=missionDayNumber(date);
   if(n<1||n>100){showToast("Choose a date inside the 100-day mission");return;}
+  const token=++viewLoadToken;
   selectedDate=date;
-  today=await getDay(date);
+  const nextDay=await getDay(date);
+  if(token!==viewLoadToken || selectedDate!==date)return;
+  today=nextDay;
   loadBoosters();
   renderToday();
   await refreshStats();
@@ -579,29 +583,40 @@ async function maybeCelebratePerfectDay(previousPercent){
 }
 
 async function toggleTask(t,completed){
+  const targetDate=today?.date;
+  if(!targetDate)return;
   const previousPercent=today.percent;
-  const r=await supabase.from("daily_tasks").upsert({user_id:user.id,task_date:today.date,task_id:t.id,completed,updated_at:new Date().toISOString()},{onConflict:"user_id,task_date,task_id"});
-  if(r.error){alert(r.error.message); return;}
-  today=await getDay(today.date); renderToday(); await refreshStats();
-  await maybeCelebratePerfectDay(previousPercent);
+  const r=await supabase.from("daily_tasks").upsert({user_id:user.id,task_date:targetDate,task_id:t.id,completed,updated_at:new Date().toISOString()},{onConflict:"user_id,task_date,task_id"});
+  if(r.error){showToast(`Could not save task: ${r.error.message}`);return;}
+  const refreshed=await getDay(targetDate);
+  if(selectedDate!==targetDate)return;
+  today=refreshed; renderToday(); await refreshStats();
+  if(selectedDate===targetDate && today?.date===targetDate) await maybeCelebratePerfectDay(previousPercent);
 }
 
 $("#completeDayBtn").addEventListener("click",async()=>{
-  if(!today || today.totalTasks===0){showToast("Add at least one task first");return;}
+  const targetDate=today?.date;
+  if(!targetDate || today.totalTasks===0){showToast("Add at least one task first");return;}
   if(today.percent<100){showToast("Finish all tasks to close the day");return;}
   if(today.completed){showToast("Day already completed");return;}
-  const r=await supabase.from("completed_days").upsert({user_id:user.id,task_date:today.date,completed:true,updated_at:new Date().toISOString()},{onConflict:"user_id,task_date"});
+  const r=await supabase.from("completed_days").upsert({user_id:user.id,task_date:targetDate,completed:true,updated_at:new Date().toISOString()},{onConflict:"user_id,task_date"});
   if(r.error){showToast(`Could not complete day: ${r.error.message}`);return;}
-  today=await getDay(today.date);
+  const refreshed=await getDay(targetDate);
+  if(selectedDate!==targetDate)return;
+  today=refreshed;
   renderToday();
   await refreshStats();
   showToast("Day completed ✓");
 });
 
 $("#saveNotes").addEventListener("click",async()=>{
+  const targetDate=today?.date;
+  if(!targetDate)return;
   const notes=$("#notes").value;
-  const r=await supabase.from("daily_notes").upsert({user_id:user.id,task_date:today.date,notes,updated_at:new Date().toISOString()},{onConflict:"user_id,task_date"});
-  if(r.error){alert(r.error.message);return;} today.notes=notes; $("#saveNotes").textContent="Saved ✓"; setTimeout(()=>$("#saveNotes").textContent="Save note",1000);
+  const r=await supabase.from("daily_notes").upsert({user_id:user.id,task_date:targetDate,notes,updated_at:new Date().toISOString()},{onConflict:"user_id,task_date"});
+  if(r.error){alert(r.error.message);return;}
+  if(selectedDate===targetDate && today?.date===targetDate)today.notes=notes;
+  $("#saveNotes").textContent="Saved ✓"; setTimeout(()=>$("#saveNotes").textContent="Save note",1000);
 });
 
 function countPerfectWeeks(rows){
@@ -654,27 +669,82 @@ async function refreshStats(){
 
 function renderHistory(){
   const box=$("#historyGrid"); box.innerHTML=""; const byDate=Object.fromEntries(history.map(x=>[x.date,x]));
+  const realToday=dateKeyInIST();
   for(let i=0;i<100;i++){
     const date=addDays(mission.start_date,i), x=byDate[date];
-    const cell=document.createElement("div"); cell.className=`day-cell ${x?.completed?"done":x?.percent>0?"partial":""}`;
-    cell.title=`Day ${i+1} · ${date}: ${x?x.percent+"% task completion":"Not started"}`; cell.innerHTML=`<span>D${i+1}</span>`;
-    if(x && date<=dateKeyInIST()) cell.addEventListener("click",()=>openDayModal(date)); box.appendChild(cell);
+    const state=x?.percent===100?"done":x?.percent>0?"partial":date>realToday?"planned":"";
+    const cell=document.createElement("div"); cell.className=`day-cell ${state} ${date===selectedDate?"selected":""}`;
+    const label=date>realToday?"Planned":x?x.percent+"% task completion":"Not started";
+    cell.title=`Day ${i+1} · ${date}: ${label}`; cell.innerHTML=`<span>D${i+1}</span>`;
+    cell.addEventListener("click",()=>openDayModal(date));
+    box.appendChild(cell);
   }
 }
 
+function dayTaskBreakdownForChart(date,row){
+  const source=row?.tasks?.length ? row.tasks : tasks.filter(t=>isTaskScheduled(t,date)).map(t=>({...t,minutes:taskMinutesForDate(t,date),completed:false}));
+  const items=source.filter(t=>Number(t.minutes)>0).map(t=>({name:t.name,minutes:Number(t.minutes)||0,completed:!!t.completed}));
+  const total=items.reduce((s,t)=>s+t.minutes,0);
+  const done=items.filter(t=>t.completed).reduce((s,t)=>s+t.minutes,0);
+  return {items,total,done};
+}
+function showChartTooltip(day, anchorX){
+  const tip=$("#chartTooltip"); if(!tip)return;
+  const breakdown=day.breakdown.items;
+  const lines=breakdown.length?breakdown.map(t=>`<span><b>${escapeHtml(t.name)}</b><em>${fmtMinutes(t.minutes)}</em></span>`).join(""):'<span><b>No task scheduled</b><em>—</em></span>';
+  tip.innerHTML=`<div class="chart-tip-top"><strong>Day ${day.day}</strong><span>${escapeHtml(formatDate(day.date,{day:"numeric",month:"short",year:"numeric"}))}</span></div><div class="chart-tip-total"><b>${day.percent}%</b><span>${fmtMinutes(day.breakdown.total)} planned</span></div><div class="chart-tip-list">${lines}</div>`;
+  tip.hidden=false;
+  const wrap=$(".mini-chart-wrap"), scroll=$("#chartScroll");
+  if(!wrap)return;
+  const localX=Math.max(10,Math.min(wrap.clientWidth-tip.offsetWidth-10,anchorX-(scroll?.scrollLeft||0)-tip.offsetWidth/2));
+  tip.style.left=`${localX}px`;
+  tip.style.top="12px";
+}
+function hideChartTooltip(){const tip=$("#chartTooltip");if(tip)tip.hidden=true;}
+function scrollChartToDay(dayNumber){
+  const scroll=$("#chartScroll"); if(!scroll)return;
+  const progress=(Math.max(1,Math.min(100,dayNumber))-1)/99;
+  scroll.scrollTo({left:Math.max(0,progress*(scroll.scrollWidth-scroll.clientWidth)),behavior:"smooth"});
+}
 function drawChart(){
-  const chart=$("#progressChart"); if(!chart||!mission||!today)return; chart.innerHTML="";
+  const chart=$("#progressChart"); if(!chart||!mission||!today)return; chart.innerHTML=""; hideChartTooltip();
   const byDate=Object.fromEntries(history.map(x=>[x.date,x])); byDate[today.date]=today;
-  const days=Array.from({length:100},(_,i)=>{const date=addDays(mission.start_date,i); const row=byDate[date]; return {day:i+1,date,percent:Number(row?.percent??0),completed:!!row?.completed,recorded:date<=today.date,data:row,future:date>today.date};});
-  const recorded=days.filter(x=>x.recorded), average=recorded.length?Math.round(recorded.reduce((s,x)=>s+x.percent,0)/recorded.length):0, best=recorded.reduce((a,x)=>!a||x.percent>a.percent?x:a,null);
-  const NS="http://www.w3.org/2000/svg", width=100*48+30,height=310,left=48,right=20,top=20,bottom=48,plotW=width-left-right,plotH=height-top-bottom;
-  const svg=document.createElementNS(NS,"svg"); svg.setAttribute("viewBox",`0 0 ${width} ${height}`); svg.setAttribute("width",width); svg.setAttribute("height",height);
+  const days=Array.from({length:100},(_,i)=>{
+    const date=addDays(mission.start_date,i);
+    const row=byDate[date];
+    const breakdown=dayTaskBreakdownForChart(date,row);
+    const percent=row ? Number(row.percent||0) : 0;
+    const completed=!!row?.completed || percent===100;
+    const hasRecord=!!row;
+    const plannedFuture=date>dateKeyInIST();
+    return {day:i+1,date,percent,completed,recorded:hasRecord,data:row,future:plannedFuture,breakdown};
+  });
+  const recorded=days.filter(x=>x.recorded && x.date<=dateKeyInIST()), average=recorded.length?Math.round(recorded.reduce((s,x)=>s+x.percent,0)/recorded.length):0, best=recorded.reduce((a,x)=>!a||x.percent>a.percent?x:a,null);
+  const NS="http://www.w3.org/2000/svg", width=4850,height=330,left=48,right=20,top=22,bottom=52,plotW=width-left-right,plotH=height-top-bottom;
+  const svg=document.createElementNS(NS,"svg"); svg.setAttribute("viewBox",`0 0 ${width} ${height}`); svg.setAttribute("width",width); svg.setAttribute("height",height); svg.setAttribute("role","presentation");
   const add=(tag,attrs={},text="")=>{const e=document.createElementNS(NS,tag);Object.entries(attrs).forEach(([k,v])=>e.setAttribute(k,v));if(text)e.textContent=text;svg.appendChild(e);return e;};
   [100,75,50,25,0].forEach(v=>{const y=top+plotH*(1-v/100);add("line",{x1:left,y1:y,x2:width-right,y2:y,class:"chart-grid"});add("text",{x:left-8,y:y+4,class:"chart-axis chart-y"},`${v}%`);});
-  days.forEach((p,i)=>{const slot=plotW/100,x=left+i*slot+slot*.18,barW=Math.max(14,slot*.64),clamped=Math.max(0,Math.min(100,p.percent)),barH=plotH*clamped/100,y=top+plotH-barH;add("rect",{x,y:top,width:barW,height:plotH,rx:5,class:"chart-bar-track"});if(p.recorded){const bar=add("rect",{x,y:y+(barH<3?plotH-3:0),width:barW,height:Math.max(3,barH),rx:5,class:`chart-bar ${p.completed?"complete":""} ${clamped===0?"empty":""}`});bar.style.cursor="pointer";bar.addEventListener("click",()=>openDayModal(p.date));if(clamped>0)add("text",{x:x+barW/2,y:Math.max(top+12,y-6),class:"chart-value"},`${clamped}%`);else add("text",{x:x+barW/2,y:top+plotH-8,class:"chart-value"},"0%");}if(p.date===today.date)add("rect",{x:x-3,y:top-3,width:barW+6,height:plotH+6,rx:7,class:"today-outline"});add("text",{x:x+barW/2,y:height-16,class:`chart-axis ${p.date===today.date?"today-label":""}`},`D${p.day}`);});
+  days.forEach((p,i)=>{
+    const slot=plotW/100,x=left+i*slot+slot*.18,barW=Math.max(14,slot*.64),clamped=Math.max(0,Math.min(100,p.percent)),barH=plotH*clamped/100,y=top+plotH-barH;
+    add("rect",{x,y:top,width:barW,height:plotH,rx:5,class:"chart-bar-track"});
+    const state=p.percent>=100?"complete":p.percent>0?"partial":p.future&&!p.recorded?"future":"empty";
+    const bar=add("rect",{x,y:y+(barH<3?plotH-3:0),width:barW,height:Math.max(3,barH),rx:5,class:`chart-bar ${state} ${p.date===today.date?"selected-day":""}`});
+    bar.style.cursor="pointer";
+    const handleEnter=()=>{bar.classList.add("lifted");showChartTooltip(p,x+barW/2);};
+    const handleLeave=()=>{bar.classList.remove("lifted");hideChartTooltip();};
+    bar.addEventListener("mouseenter",handleEnter); bar.addEventListener("mouseleave",handleLeave); bar.addEventListener("focus",handleEnter); bar.addEventListener("blur",handleLeave);
+    bar.addEventListener("click",()=>openDayModal(p.date));
+    if(p.percent>0)add("text",{x:x+barW/2,y:Math.max(top+12,y-6),class:"chart-value"},`${p.percent}%`);
+    if(i===0 || (i+1)%10===0 || i===99)add("text",{x:x+barW/2,y:height-16,class:`chart-axis ${p.date===today.date?"today-label":""}`},`D${p.day}`);
+    if(p.date===today.date)add("rect",{x:x-3,y:top-3,width:barW+6,height:plotH+6,rx:7,class:"today-outline"});
+  });
   chart.appendChild(svg);
-  $("#chartStats").innerHTML=`<div><b>${recorded.length}</b><span>days recorded</span></div><div><b>${average}%</b><span>average work</span></div><div><b>${best?best.percent+"%":"—"}</b><span>${best?"best day · D"+best.day:"best day"}</span></div><div><b>${today.percent}%</b><span>today · D${missionDayNumber(today.date)}</span></div>`;
-  requestAnimationFrame(()=>{const idx=days.findIndex(x=>x.date===today.date),scroll=$("#chartScroll");if(scroll&&idx>=0)scroll.scrollLeft=Math.max(0,(idx/100)*scroll.scrollWidth-scroll.clientWidth/2);});
+  $("#chartStats").innerHTML=`<div><b>${recorded.length}</b><span>days recorded</span></div><div><b>${average}%</b><span>average work</span></div><div><b>${best?best.percent+"%":"—"}</b><span>${best?"best day · D"+best.day:"best day"}</span></div><div><b>${today.percent}%</b><span>view · D${missionDayNumber(today.date)}</span></div>`;
+  requestAnimationFrame(()=>{
+    document.querySelectorAll("#chartRangeNav .chart-range-btn").forEach(btn=>btn.classList.remove("active"));
+    const d=missionDayNumber(today.date); const start=Math.floor((d-1)/20)*20+1; const active=document.querySelector(`#chartRangeNav .chart-range-btn[data-start="${start}"]`); active?.classList.add("active");
+    const scroll=$("#chartScroll"); if(scroll && d>20){const progress=(d-1)/99;scroll.scrollLeft=Math.max(0,progress*(scroll.scrollWidth-scroll.clientWidth));}
+  });
 }
 
 async function openDayModal(date){
@@ -833,6 +903,14 @@ $("#signUpBtn").addEventListener("click",async()=>{
   }
 });
 $("#signOutBtn").addEventListener("click",()=>supabase.auth.signOut());
+
+document.querySelectorAll("#chartRangeNav .chart-range-btn").forEach(btn=>btn.addEventListener("click",()=>{
+  const start=Number(btn.dataset.start)||1;
+  document.querySelectorAll("#chartRangeNav .chart-range-btn").forEach(x=>x.classList.remove("active"));
+  btn.classList.add("active");
+  scrollChartToDay(start);
+}));
+$("#chartScroll")?.addEventListener("scroll",()=>hideChartTooltip());
 
 async function startApp(s){
   session=s;user=s.user;selectedDate=dateKeyInIST();$("#authScreen").classList.add("hidden");$("#appShell").classList.remove("hidden");

@@ -1,7 +1,6 @@
-# MY_TASKS V15 
+# MY_TASKS V15
 
 V15 is a UX-focused refinement of the existing tracker. It keeps the Projects section, Mission start date, Daily Work chart, history, authentication, and existing Supabase database setup.
-https://syedjunaid23.github.io/MY_TASKS/
 
 ## Main fixes
 - Work-ahead no longer jumps back to today during the background refresh.
@@ -25,3 +24,6 @@ Upload only these four files to the GitHub Pages repository root:
 - README.md
 
 No new SQL is included in V15; it uses the database/RPC setup already applied for V13/V14.
+
+
+V16 fixes future-day navigation state, makes all 100 history days openable, adds 1–100 chart range navigation, hover breakdown tooltips, hover lift animation, and explicit future/partial/completed chart colors. No new SQL is required.
