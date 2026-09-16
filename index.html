@@ -42,9 +42,9 @@
     <main class="container">
       <section class="hero-grid">
         <div class="card progress-card">
-          <div class="card-head"><div><span class="label">100-DAY MISSION</span><h2><span id="daysCompleted">0</span> / 100 days</h2></div><div class="mission-head-actions"><button id="missionSettingsBtn" class="secondary small-btn" type="button">⚙ Mission</button><div class="big-percent" id="missionPercent">0%</div></div></div>
+          <div class="card-head"><div><span class="label">100-DAY MISSION</span><h2><span id="daysCompleted">0</span> / 100 days</h2></div><div class="mission-head-actions"><button id="missionSettingsBtn" class="secondary small-btn" type="button">⚙ Mission</button><span id="weekStreakBadge" class="week-streak-badge">🔥 Start your week streak</span><div class="big-percent" id="missionPercent">0%</div></div></div>
           <div class="progress"><div id="missionBar" class="progress-fill"></div></div>
-          <div class="stats-row"><div><b id="daysRemaining">100</b><span>days remaining</span></div><div><b id="currentStreak">0</b><span>day streak</span></div><div><b id="completionRate">0%</b><span>task completion</span></div></div>
+          <div class="stats-row"><div><b id="daysRemaining">100</b><span>days remaining</span></div><div class="week-streak-stat"><b>🔥 <span id="currentStreak">0</span></b><span>week streak</span></div><div><b id="completionRate">0%</b><span>task completion</span></div></div>
         </div>
         <div class="card today-card">
           <div class="card-head"><div><span class="label">TODAY</span><h2 id="planTitle">Loading…</h2></div><span id="planBadge" class="badge">—</span></div>
@@ -87,17 +87,33 @@
       <p class="muted project-private-note">Build your own schedule. Each task can repeat on the days you choose, with separate weekday and weekend times.</p>
       <div id="taskManagerList" class="task-manager-list"></div>
       <form id="addTaskForm" class="task-add-form" autocomplete="off">
-        <div class="task-add-form-grid task-add-form-grid-v2">
-          <label>Task name<input id="newTaskName" name="custom_task_label" type="text" maxlength="100" placeholder="Enter task name" autocomplete="off" required></label>
-          <label>Weekday time<input id="newTaskWeekday" name="custom_task_weekday" type="text" inputmode="numeric" placeholder="1h 30m" autocomplete="off"><small>Mon–Fri</small></label>
-          <label>Weekend time<input id="newTaskWeekend" name="custom_task_weekend" type="text" inputmode="numeric" placeholder="2h" autocomplete="off"><small>Sat–Sun</small></label>
-          <div class="task-add-form-actions"><button class="primary" type="submit">＋ Add task</button></div>
+        <div class="task-add-form-title">
+          <div>
+            <strong>＋ Add a task</strong>
+            <span>Keep it simple. Add a name, time, and choose a schedule only when you need it.</span>
+          </div>
         </div>
-        <div class="new-task-repeat"><span>Repeat</span><button id="newTaskRepeatToggle" class="secondary small-btn" type="button">↻ <span id="newTaskRepeatSummary">Mon · Tue · Wed · Thu · Fri</span></button></div>
-        <div id="newTaskRepeatPanel" class="task-repeat-panel" hidden>
-          <div class="repeat-title">Choose the days this task appears</div>
-          <div class="repeat-chips">${['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map((name,d)=>`<button type="button" class="repeat-chip ${d>=1&&d<=5?'active':''}" data-day="${d}">${name}</button>`).join('')}</div>
-          <div class="repeat-quick"><button type="button" class="secondary repeat-preset" data-preset="weekdays">Mon–Fri</button><button type="button" class="secondary repeat-preset" data-preset="weekends">Sat–Sun</button><button type="button" class="secondary repeat-preset" data-preset="all">Every day</button><button type="button" class="secondary repeat-preset" data-preset="none">Never</button></div>
+        <div class="task-add-form-grid task-add-form-grid-simple">
+          <label>Task name<input id="newTaskName" name="task_title_v14" type="text" maxlength="100" placeholder="e.g. Python practice" autocomplete="off" required></label>
+          <label>Weekday time<input id="newTaskWeekday" name="task_weekday_v14" type="text" inputmode="numeric" placeholder="1h 30m" autocomplete="off"><small>Mon–Fri</small></label>
+          <label>Weekend time<input id="newTaskWeekend" name="task_weekend_v14" type="text" inputmode="numeric" placeholder="Same as weekday" autocomplete="off"><small>Sat–Sun · optional</small></label>
+          <div class="task-add-form-actions"><button class="primary" type="submit">Add task</button></div>
+        </div>
+        <div class="schedule-control">
+          <span class="schedule-label">Schedule</span>
+          <button id="newTaskScheduleToggle" class="schedule-pill" type="button" aria-expanded="false">
+            <span class="schedule-icon">↻</span><span id="newTaskScheduleSummary">Mon–Fri</span><span class="schedule-chevron">⌄</span>
+          </button>
+        </div>
+        <div id="newTaskSchedulePanel" class="schedule-popover" hidden>
+          <div class="schedule-popover-title">When should this task appear?</div>
+          <div class="schedule-preset-grid">
+            <button type="button" class="schedule-preset active" data-new-preset="weekdays">Mon–Fri</button>
+            <button type="button" class="schedule-preset" data-new-preset="weekends">Sat–Sun</button>
+            <button type="button" class="schedule-preset" data-new-preset="every">Every day</button>
+            <button type="button" class="schedule-preset" data-new-preset="custom">Choose days</button>
+          </div>
+          <div id="newTaskCustomDays" class="custom-days" hidden></div>
         </div>
       </form>
       <div class="task-manager-actions"><span class="muted small">Changes are saved to the tracker.</span><button id="closeChecklistBtn" class="primary" type="button">Done</button></div>

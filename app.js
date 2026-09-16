@@ -136,15 +136,15 @@ async function getHistory(){
 function renderDayNavigator({dayNo,workingAhead,beforeMission,afterMission,realToday}){
   const box=$("#dayNav"); if(!box)return;
   if(beforeMission||afterMission){box.innerHTML="";box.hidden=true;return;}
-  const maxDate=addDays(mission.start_date,99);
   const canPrev=dayNo>1, canNext=dayNo<100;
+  const canAdvance=Number(today?.percent||0)===100 || !!today?.completed;
   box.hidden=false;
-  const back=workingAhead?'<button id="backToTodayBtn" class="day-nav-link secondary" type="button">↩ Today</button>':"";
-  const workAhead=(!workingAhead && today.completed && canNext)?'<button id="workAheadBtn" class="day-nav-link primary" type="button">Work ahead →</button>':"";
+  const back=workingAhead?'<button id="backToTodayBtn" class="day-nav-link secondary" type="button">← Today</button>':"";
+  const workAhead=(!workingAhead && canAdvance && canNext)?'<button id="workAheadBtn" class="day-nav-link primary" type="button">Work ahead →</button>':"";
   const next=workingAhead&&canNext?'<button id="nextDayBtn" class="day-nav-link primary" type="button">Next day →</button>':"";
   const prev=workingAhead&&canPrev?'<button id="prevDayBtn" class="day-nav-link secondary" type="button">← Previous</button>':"";
-  box.innerHTML=`<div class="day-nav-left"><input id="dayPicker" class="day-picker" type="date" min="${mission.start_date}" max="${maxDate}" value="${today.date}" aria-label="Choose mission day"><span>${workingAhead?`Working ahead · ${formatDate(today.date,{day:"numeric",month:"short"})}`:"Complete today to unlock Work ahead"}</span></div><div class="day-nav-actions">${back}${prev}${next}${workAhead}</div>`;
-  $("#dayPicker")?.addEventListener("change",async e=>{if(e.target.value)await selectMissionDate(e.target.value);});
+  const label=workingAhead ? `Working ahead · Day ${dayNo}` : (canAdvance ? "Today complete · next day unlocked" : "Finish today's tasks to unlock Work ahead");
+  box.innerHTML=`<div class="day-nav-left"><span class="day-nav-dot"></span><span>${label}</span></div><div class="day-nav-actions">${back}${prev}${next}${workAhead}</div>`;
   $("#backToTodayBtn")?.addEventListener("click",()=>selectMissionDate(realToday));
   $("#workAheadBtn")?.addEventListener("click",()=>selectMissionDate(addDays(today.date,1)));
   $("#nextDayBtn")?.addEventListener("click",()=>selectMissionDate(addDays(today.date,1)));
@@ -166,7 +166,7 @@ function renderToday(){
   $("#todayTasks").textContent=`${today.completedTasks} / ${today.totalTasks} tasks`;
   $("#todayMinutes").textContent=`${fmtMinutes(today.completedMinutes)} / ${fmtMinutes(today.totalMinutes)}`;
   $("#notes").value=today.notes||"";
-  $("#completeDayBtn").textContent=today.completed?"✓ Day completed":"Mark day complete";
+  $("#completeDayBtn").textContent=(today.percent===100)?"✓ Day complete":"Mark day complete"; $("#completeDayBtn").disabled=today.percent===100;
   renderDayNavigator({dayNo,workingAhead,beforeMission,afterMission,realToday});
   $("#checklistTitle").textContent=beforeMission?"Not started":afterMission?"Mission complete":`Day ${dayNo} of 100${workingAhead?" · Working ahead":""}`;
   const list=$("#taskList"); list.innerHTML="";
@@ -198,61 +198,218 @@ function closeChecklistModal(){$("#checklistModal").classList.remove("open");$("
 function repeatLabel(days){
   if(!Array.isArray(days)||!days.length)return "Never"; const names=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"]; return days.slice().sort((a,b)=>a-b).map(d=>names[d]).join(" · ");
 }
+
+const DAY_NAMES=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+const SCHEDULE_PRESETS={
+  weekdays:[1,2,3,4,5],
+  weekends:[0,6],
+  every:[0,1,2,3,4,5,6],
+  none:[]
+};
+function scheduleSummary(days){
+  const d=Array.isArray(days)?days.slice().sort((a,b)=>a-b):[];
+  if(d.join(",")==="1,2,3,4,5") return "Mon–Fri";
+  if(d.join(",")==="0,6") return "Sat–Sun";
+  if(d.join(",")==="0,1,2,3,4,5,6") return "Every day";
+  return repeatLabel(d);
+}
+function renderCustomDayChips(container, days, cls="v14-day-chip"){
+  if(!container)return;
+  const selected=new Set(Array.isArray(days)?days:[]);
+  container.innerHTML=DAY_NAMES.map((name,d)=>`<button type="button" class="${cls} ${selected.has(d)?"active":""}" data-day="${d}">${name}</button>`).join("");
+}
 function renderTaskManager(){
   const box=$("#taskManagerList"); if(!box)return;
-  if(!tasks.length){box.innerHTML='<div class="manager-empty"><b>Your checklist is empty</b><span>Add your first task below. Nothing is predefined.</span></div>';return;}
+  if(!tasks.length){
+    box.innerHTML='<div class="manager-empty"><b>Your checklist is empty</b><span>Add a task below. Nothing is preloaded.</span></div>';
+    return;
+  }
   box.innerHTML=tasks.map((t,i)=>{
-    const days=Array.isArray(t.repeatDays)?t.repeatDays:[0,1,2,3,4,5,6];
+    const days=Array.isArray(t.repeatDays)?t.repeatDays:[1,2,3,4,5];
     return `<div class="task-manager-row" data-task-id="${escapeHtml(t.id)}">
-      <div class="task-manager-top"><input class="task-manager-name" value="${escapeHtml(t.name)}" maxlength="100" aria-label="Task name" autocomplete="off"><button class="secondary task-delete" type="button">Remove</button></div>
-      <div class="task-time-grid"><label>Weekday time<input class="task-weekday-time" type="text" inputmode="numeric" value="${formatTimeInput(t.weekday)}" placeholder="1h 30m" autocomplete="off"><small>Mon–Fri</small></label><label>Weekend time<input class="task-weekend-time" type="text" inputmode="numeric" value="${formatTimeInput(t.weekendMinutes)}" placeholder="2h" autocomplete="off"><small>Sat–Sun</small></label></div>
-      <div class="task-repeat-line"><button class="secondary task-repeat-toggle" type="button">↻ Repeat <span>${repeatLabel(days)}</span></button></div>
-      <div class="task-repeat-panel" hidden><div class="repeat-title">Repeat this task on</div><div class="repeat-chips">${["Sun","Mon","Tue","Wed","Thu","Fri","Sat"].map((name,d)=>`<button type="button" class="repeat-chip ${days.includes(d)?"active":""}" data-day="${d}">${name}</button>`).join("")}</div><div class="repeat-quick"><button type="button" class="secondary repeat-preset" data-preset="weekdays">Mon–Fri</button><button type="button" class="secondary repeat-preset" data-preset="weekends">Sat–Sun</button><button type="button" class="secondary repeat-preset" data-preset="all">Every day</button><button type="button" class="secondary repeat-preset" data-preset="none">Never</button></div></div>
-      <div class="task-manager-row-actions"><button class="secondary task-up" type="button" ${i===0?'disabled':''}>↑</button><button class="secondary task-down" type="button" ${i===tasks.length-1?'disabled':''}>↓</button><button class="primary task-save" type="button">Save changes</button></div>
+      <div class="task-manager-top">
+        <div class="task-title-wrap">
+          <input class="task-manager-name" value="${escapeHtml(t.name)}" maxlength="100" aria-label="Task name" autocomplete="off">
+          <span class="task-schedule-inline">${escapeHtml(scheduleSummary(days))}</span>
+        </div>
+        <button class="secondary task-delete" type="button">Remove</button>
+      </div>
+      <div class="task-time-grid">
+        <label>Weekday time<input class="task-weekday-time" type="text" inputmode="numeric" value="${formatTimeInput(t.weekday)}" placeholder="1h 30m" autocomplete="off"><small>Mon–Fri</small></label>
+        <label>Weekend time<input class="task-weekend-time" type="text" inputmode="numeric" value="${formatTimeInput(t.weekendMinutes)}" placeholder="Same as weekday" autocomplete="off"><small>Sat–Sun</small></label>
+      </div>
+      <div class="task-manager-controls">
+        <button class="schedule-pill task-schedule-toggle" type="button" aria-expanded="false">↻ <span>${escapeHtml(scheduleSummary(days))}</span> <em>schedule</em></button>
+        <div class="task-manager-row-actions">
+          <button class="secondary task-up" type="button" ${i===0?'disabled':''}>↑</button>
+          <button class="secondary task-down" type="button" ${i===tasks.length-1?'disabled':''}>↓</button>
+          <button class="primary task-save" type="button">Save</button>
+        </div>
+      </div>
+      <div class="schedule-popover task-schedule-panel" hidden>
+        <div class="schedule-popover-title">When should this task appear?</div>
+        <div class="schedule-preset-grid">
+          <button type="button" class="schedule-preset" data-schedule-preset="weekdays">Mon–Fri</button>
+          <button type="button" class="schedule-preset" data-schedule-preset="weekends">Sat–Sun</button>
+          <button type="button" class="schedule-preset" data-schedule-preset="every">Every day</button>
+          <button type="button" class="schedule-preset" data-schedule-preset="custom">Choose days</button>
+        </div>
+        <div class="custom-days" hidden></div>
+      </div>
     </div>`;
   }).join("");
-  box.querySelectorAll('.task-save').forEach(b=>b.addEventListener('click',()=>saveManagedTask(b.closest('.task-manager-row'))));
-  box.querySelectorAll('.task-delete').forEach(b=>b.addEventListener('click',()=>deleteManagedTask(b.closest('.task-manager-row').dataset.taskId)));
-  box.querySelectorAll('.task-up').forEach(b=>b.addEventListener('click',()=>moveManagedTask(b.closest('.task-manager-row').dataset.taskId,-1)));
-  box.querySelectorAll('.task-down').forEach(b=>b.addEventListener('click',()=>moveManagedTask(b.closest('.task-manager-row').dataset.taskId,1)));
-  box.querySelectorAll('.task-repeat-toggle').forEach(btn=>btn.addEventListener('click',()=>{const panel=btn.closest('.task-manager-row').querySelector('.task-repeat-panel');panel.hidden=!panel.hidden;}));
-  box.querySelectorAll('.repeat-chip').forEach(btn=>btn.addEventListener('click',()=>{btn.classList.toggle('active');const row=btn.closest('.task-manager-row');row.querySelector('.task-repeat-toggle span').textContent=repeatLabel(getSelectedRepeatDays(row));}));
-  box.querySelectorAll('.repeat-preset').forEach(btn=>btn.addEventListener('click',()=>{const row=btn.closest('.task-manager-row');const p=btn.dataset.preset;const selected=p==='weekdays'?[1,2,3,4,5]:p==='weekends'?[0,6]:p==='all'?[0,1,2,3,4,5,6]:[];row.querySelectorAll('.repeat-chip').forEach(ch=>ch.classList.toggle('active',selected.includes(Number(ch.dataset.day))));row.querySelector('.task-repeat-toggle span').textContent=repeatLabel(selected);}));
+
+  box.querySelectorAll(".task-save").forEach(b=>b.addEventListener("click",()=>saveManagedTask(b.closest(".task-manager-row"))));
+  box.querySelectorAll(".task-delete").forEach(b=>b.addEventListener("click",()=>deleteManagedTask(b.closest(".task-manager-row").dataset.taskId)));
+  box.querySelectorAll(".task-up").forEach(b=>b.addEventListener("click",()=>moveManagedTask(b.closest(".task-manager-row").dataset.taskId,-1)));
+  box.querySelectorAll(".task-down").forEach(b=>b.addEventListener("click",()=>moveManagedTask(b.closest(".task-manager-row").dataset.taskId,1)));
+
+  box.querySelectorAll(".task-manager-row").forEach(row=>{
+    const task=tasks.find(t=>String(t.id)===String(row.dataset.taskId));
+    const panel=row.querySelector(".task-schedule-panel");
+    const summary=row.querySelector(".task-schedule-toggle span");
+    const selected=Array.isArray(task?.repeatDays)?task.repeatDays:[1,2,3,4,5];
+    panel.dataset.selectedDays=selected.slice().sort((a,b)=>a-b).join(",");
+    renderCustomDayChips(panel.querySelector(".custom-days"),selected);
+
+    const key=Object.entries(SCHEDULE_PRESETS).find(([_,v])=>v.join(",")===selected.slice().sort((a,b)=>a-b).join(","))?.[0] || "custom";
+    panel.querySelectorAll(".schedule-preset").forEach(btn=>btn.classList.toggle("active",btn.dataset.schedulePreset===key));
+    panel.querySelector(".custom-days").hidden=key!=="custom";
+
+    row.querySelector(".task-schedule-toggle").addEventListener("click",()=>{
+      const opening=panel.hidden;
+      box.querySelectorAll(".task-schedule-panel").forEach(x=>x.hidden=true);
+      box.querySelectorAll(".task-schedule-toggle").forEach(x=>x.setAttribute("aria-expanded","false"));
+      panel.hidden=!opening;
+      row.querySelector(".task-schedule-toggle").setAttribute("aria-expanded",String(opening));
+    });
+
+    panel.querySelectorAll(".schedule-preset").forEach(btn=>btn.addEventListener("click",()=>{
+      const p=btn.dataset.schedulePreset;
+      if(p==="custom"){
+        panel.querySelector(".custom-days").hidden=false;
+      }else{
+        const chosen=SCHEDULE_PRESETS[p].slice();
+        panel.dataset.selectedDays=chosen.join(",");
+        renderCustomDayChips(panel.querySelector(".custom-days"),chosen);
+        panel.querySelector(".custom-days").hidden=true;
+        summary.textContent=scheduleSummary(chosen);
+      }
+      panel.querySelectorAll(".schedule-preset").forEach(x=>x.classList.toggle("active",x===btn));
+    }));
+
+    panel.querySelector(".custom-days").addEventListener("click",e=>{
+      const chip=e.target.closest(".v14-day-chip"); if(!chip)return;
+      chip.classList.toggle("active");
+      const chosen=[...panel.querySelectorAll(".v14-day-chip.active")].map(x=>Number(x.dataset.day)).sort((a,b)=>a-b);
+      panel.dataset.selectedDays=chosen.join(",");
+      summary.textContent=scheduleSummary(chosen);
+      panel.querySelectorAll(".schedule-preset").forEach(x=>x.classList.toggle("active",x.dataset.schedulePreset==="custom"));
+    });
+  });
 }
-function getSelectedRepeatDays(row){return [...row.querySelectorAll('.repeat-chip.active')].map(x=>Number(x.dataset.day)).sort((a,b)=>a-b);}
-function parseTimeInput(text){const raw=String(text||'').trim().toLowerCase();if(!raw)return 0;const h=(raw.match(/(\\d+)\\s*h/)||[])[1],m=(raw.match(/(\\d+)\\s*m/)||[])[1];if(h||m)return Math.max(0,(parseInt(h||'0',10)*60)+Math.min(59,parseInt(m||'0',10)));const n=parseInt(raw,10);return Number.isFinite(n)?Math.max(0,n):0;}
-function formatTimeInput(m){m=Math.max(0,Number(m)||0);const h=Math.floor(m/60),mins=m%60;if(h&&mins)return `${h}h ${mins}m`;if(h)return `${h}h`;return mins?`${mins}m`:'';}
-function saveCustomTaskSnapshot(task){const key=`tracker-custom-task-snapshot-${user.id}`;const rows=JSON.parse(localStorage.getItem(key)||'{}');rows[String(task.id)]={id:task.id,name:task.name,weekday:Number(task.weekday)||0,holiday:Number(task.holiday)||0,weekendMinutes:Number(task.weekendMinutes??task.holiday??task.weekday)||0,repeatDays:Array.isArray(task.repeatDays)?task.repeatDays.slice():[0,1,2,3,4,5,6],sort_order:Number(task.sort_order)||0,custom:true};localStorage.setItem(key,JSON.stringify(rows));}
-function loadCustomTaskSnapshot(){try{return JSON.parse(localStorage.getItem(`tracker-custom-task-snapshot-${user.id}`)||'{}')}catch{return {}}}
+function getSelectedRepeatDays(row){
+  const panel=row.querySelector(".task-schedule-panel");
+  return panel ? panel.dataset.selectedDays.split(",").filter(Boolean).map(Number).sort((a,b)=>a-b) : [1,2,3,4,5];
+}
+function parseTimeInput(text){
+  const raw=String(text||"").trim().toLowerCase();
+  if(!raw)return 0;
+  const h=(raw.match(/(\d+)\s*h/)||[])[1],m=(raw.match(/(\d+)\s*m/)||[])[1];
+  if(h||m)return Math.max(0,(parseInt(h||"0",10)*60)+Math.min(59,parseInt(m||"0",10)));
+  const n=parseInt(raw,10);
+  return Number.isFinite(n)?Math.max(0,n):0;
+}
+function formatTimeInput(m){
+  m=Math.max(0,Number(m)||0);
+  const h=Math.floor(m/60),mins=m%60;
+  if(h&&mins)return `${h}h ${mins}m`;
+  if(h)return `${h}h`;
+  return mins?`${mins}m`:"";
+}
+function saveCustomTaskSnapshot(task){
+  const key=`tracker-custom-task-snapshot-${user.id}`;
+  const rows=JSON.parse(localStorage.getItem(key)||"{}");
+  rows[String(task.id)]={id:task.id,name:task.name,weekday:Number(task.weekday)||0,holiday:Number(task.holiday)||0,weekendMinutes:Number(task.weekendMinutes??task.holiday??task.weekday)||0,repeatDays:Array.isArray(task.repeatDays)?task.repeatDays.slice():[0,1,2,3,4,5,6],sort_order:Number(task.sort_order)||0,custom:true};
+  localStorage.setItem(key,JSON.stringify(rows));
+}
+function loadCustomTaskSnapshot(){try{return JSON.parse(localStorage.getItem(`tracker-custom-task-snapshot-${user.id}`)||"{}")}catch{return {}}}
 async function saveManagedTask(row){
-  const id=row.dataset.taskId,name=row.querySelector('.task-manager-name').value.trim();
-  const weekdayMinutes=parseTimeInput(row.querySelector('.task-weekday-time').value), weekendMinutes=parseTimeInput(row.querySelector('.task-weekend-time').value);
+  const id=row.dataset.taskId;
+  const name=row.querySelector(".task-manager-name").value.trim();
+  const weekdayMinutes=parseTimeInput(row.querySelector(".task-weekday-time").value);
+  const rawWeekend=row.querySelector(".task-weekend-time").value.trim();
+  const weekendMinutes=rawWeekend?parseTimeInput(rawWeekend):weekdayMinutes;
   const repeatDays=getSelectedRepeatDays(row);
-  if(!name){showToast('Enter a task name');return;} if(!repeatDays.length){showToast('Choose at least one repeat day');return;}
-  if(weekdayMinutes<=0 && repeatDays.some(d=>d>=1&&d<=5)){showToast('Set a weekday time greater than 0');return;}
-  if(weekendMinutes<=0 && repeatDays.some(d=>d===0||d===6)){showToast('Set a weekend time greater than 0');return;}
-  const r=await supabase.rpc('tracker_update_task_schedule',{p_task_id:String(id),p_name:name,p_weekday_minutes:weekdayMinutes,p_weekend_minutes:weekendMinutes,p_repeat_days:repeatDays});
+
+  if(!name){showToast("Enter a task name");return;}
+  if(!repeatDays.length){showToast("Choose at least one day");return;}
+  if(weekdayMinutes<=0 && repeatDays.some(d=>d>=1&&d<=5)){showToast("Add a weekday time");return;}
+  if(weekendMinutes<=0 && repeatDays.some(d=>d===0||d===6)){showToast("Add a weekend time");return;}
+
+  const r=await supabase.rpc("tracker_update_task_schedule",{p_task_id:String(id),p_name:name,p_weekday_minutes:weekdayMinutes,p_weekend_minutes:weekendMinutes,p_repeat_days:repeatDays});
   if(r.error){showToast(`Could not save: ${r.error.message}`);return;}
-  await loadTasks();const updated=tasks.find(t=>String(t.id)===String(id));if(updated)saveCustomTaskSnapshot(updated);today=await getDay(today.date);renderToday();renderTaskManager();renderSetupSummary();await refreshStats();showToast('Task updated');
+  await loadTasks();
+  const updated=tasks.find(t=>String(t.id)===String(id));
+  if(updated)saveCustomTaskSnapshot(updated);
+  today=await getDay(today.date);
+  renderToday();renderTaskManager();renderSetupSummary();await refreshStats();
+  showToast("Task saved");
 }
 function clearNewTaskFields(){
-  const form=$("#addTaskForm"); if(form)form.reset(); $("#newTaskName").value='';$("#newTaskWeekday").value='';$("#newTaskWeekend").value='';
-  const chips=document.querySelectorAll('#newTaskRepeatPanel .repeat-chip');chips.forEach(ch=>ch.classList.toggle('active',[1,2,3,4,5].includes(Number(ch.dataset.day))));
-  const label=$("#newTaskRepeatSummary");if(label)label.textContent='Mon · Tue · Wed · Thu · Fri';
+  const form=$("#addTaskForm"); if(form)form.reset();
+  $("#newTaskName").value="";$("#newTaskWeekday").value="";$("#newTaskWeekend").value="";
+  const panel=$("#newTaskSchedulePanel");
+  if(panel){
+    panel.hidden=true;
+    panel.dataset.selectedDays=SCHEDULE_PRESETS.weekdays.join(",");
+    renderCustomDayChips($("#newTaskCustomDays"),SCHEDULE_PRESETS.weekdays);
+    $("#newTaskCustomDays").hidden=true;
+    panel.querySelectorAll("[data-new-preset]").forEach(b=>b.classList.toggle("active",b.dataset.newPreset==="weekdays"));
+  }
+  $("#newTaskScheduleSummary").textContent="Mon–Fri";
+  $("#newTaskScheduleToggle")?.setAttribute("aria-expanded","false");
 }
-function getNewTaskRepeatDays(){return [...document.querySelectorAll('#newTaskRepeatPanel .repeat-chip.active')].map(x=>Number(x.dataset.day)).sort((a,b)=>a-b);}
+function getNewTaskRepeatDays(){
+  return ($("#newTaskSchedulePanel")?.dataset.selectedDays||"1,2,3,4,5").split(",").filter(Boolean).map(Number).sort((a,b)=>a-b);
+}
 async function addManagedTask(e){
-  e?.preventDefault();const name=$("#newTaskName").value.trim(),weekdayMinutes=parseTimeInput($("#newTaskWeekday").value),weekendMinutes=parseTimeInput($("#newTaskWeekend").value),repeatDays=getNewTaskRepeatDays();
-  if(!name){showToast('Enter a task name');return;}if(!repeatDays.length){showToast('Choose at least one repeat day');return;}
-  if(weekdayMinutes<=0 && repeatDays.some(d=>d>=1&&d<=5)){showToast('Set a weekday time greater than 0');return;}if(weekendMinutes<=0 && repeatDays.some(d=>d===0||d===6)){showToast('Set a weekend time greater than 0');return;}
+  e?.preventDefault();
+  const name=$("#newTaskName").value.trim();
+  const weekdayMinutes=parseTimeInput($("#newTaskWeekday").value);
+  const rawWeekend=$("#newTaskWeekend").value.trim();
+  const repeatDays=getNewTaskRepeatDays();
+  const weekendMinutes=rawWeekend?parseTimeInput(rawWeekend):weekdayMinutes;
+
+  if(!name){showToast("Enter a task name");$("#newTaskName")?.focus();return;}
+  if(!repeatDays.length){showToast("Choose at least one day");return;}
+  if(weekdayMinutes<=0 && repeatDays.some(d=>d>=1&&d<=5)){showToast("Add a weekday time");return;}
+  if(weekendMinutes<=0 && repeatDays.some(d=>d===0||d===6)){showToast("Add a weekend time");return;}
+
   const maxOrder=tasks.reduce((m,t)=>Math.max(m,Number(t.sort_order)||0),0);
-  const r=await supabase.rpc('tracker_create_task',{p_name:name,p_weekday_minutes:weekdayMinutes,p_weekend_minutes:weekendMinutes,p_repeat_days:repeatDays,p_sort_order:maxOrder+1});
+  const r=await supabase.rpc("tracker_create_task",{p_name:name,p_weekday_minutes:weekdayMinutes,p_weekend_minutes:weekendMinutes,p_repeat_days:repeatDays,p_sort_order:maxOrder+1});
   if(r.error){showToast(`Could not add task: ${r.error.message}`);return;}
   if(!localStorage.getItem(`tracker-custom-start-${user.id}`))localStorage.setItem(`tracker-custom-start-${user.id}`,dateKeyInIST());
-  clearNewTaskFields();await loadTasks();tasks.forEach(saveCustomTaskSnapshot);today=await getDay(today.date);renderToday();renderTaskManager();renderSetupSummary();await refreshStats();showToast('Task added');
+  clearNewTaskFields();
+  await loadTasks();tasks.forEach(saveCustomTaskSnapshot);
+  today=await getDay(today.date);
+  renderToday();renderTaskManager();renderSetupSummary();await refreshStats();
+  showToast("Task added");
 }
-async function deleteManagedTask(id){const r=await supabase.rpc('tracker_delete_task',{p_task_id:String(id)});if(r.error){showToast(`Could not remove task: ${r.error.message}`);return;}await loadTasks();today=await getDay(today.date);renderToday();renderTaskManager();renderSetupSummary();await refreshStats();showToast('Task removed');}
-async function moveManagedTask(id,delta){const ordered=[...tasks].sort((a,b)=>a.sort_order-b.sort_order),idx=ordered.findIndex(x=>String(x.id)===String(id)),target=idx+delta;if(idx<0||target<0||target>=ordered.length)return;const a=ordered[idx],b=ordered[target];const r=await supabase.rpc('tracker_reorder_tasks',{p_task_id:String(a.id),p_other_task_id:String(b.id)});if(r.error){showToast(`Could not reorder: ${r.error.message}`);return;}await loadTasks();tasks.forEach(saveCustomTaskSnapshot);renderTaskManager();renderToday();renderSetupSummary();showToast('Order updated');}
+async function deleteManagedTask(id){
+  const r=await supabase.rpc("tracker_delete_task",{p_task_id:String(id)});
+  if(r.error){showToast(`Could not remove task: ${r.error.message}`);return;}
+  await loadTasks();today=await getDay(today.date);renderToday();renderTaskManager();renderSetupSummary();await refreshStats();showToast("Task removed");
+}
+async function moveManagedTask(id,delta){
+  const ordered=[...tasks].sort((a,b)=>a.sort_order-b.sort_order);
+  const idx=ordered.findIndex(x=>String(x.id)===String(id)),target=idx+delta;
+  if(idx<0||target<0||target>=ordered.length)return;
+  const a=ordered[idx],b=ordered[target];
+  const r=await supabase.rpc("tracker_reorder_tasks",{p_task_id:String(a.id),p_other_task_id:String(b.id)});
+  if(r.error){showToast(`Could not reorder: ${r.error.message}`);return;}
+  await loadTasks();tasks.forEach(saveCustomTaskSnapshot);renderTaskManager();renderToday();renderSetupSummary();showToast("Order updated");
+}
 
 function openMissionModal(){$("#missionStartDate").value=mission?.start_date||dateKeyInIST();$("#missionModal").classList.add("open");$("#missionModal").setAttribute("aria-hidden","false");}
 function closeMissionModal(){$("#missionModal").classList.remove("open");$("#missionModal").setAttribute("aria-hidden","true");}
@@ -362,7 +519,6 @@ function isPerfectRow(row){return !!row && row.totalTasks>0 && row.percent===100
 function weekNumberForDay(dayNo){return Math.floor((dayNo-1)/7)+1;}
 function sevenDayWeekIsComplete(dayNo){
   if(dayNo<7)return false;
-  const startDay=dayNo-weekNumberForDay(dayNo)*0-6;
   const startIndex=dayNo-6;
   for(let i=startIndex;i<=dayNo;i++){
     const date=addDays(mission.start_date,i-1);
@@ -395,9 +551,8 @@ async function toggleTask(t,completed){
 }
 
 $("#completeDayBtn").addEventListener("click",async()=>{
-  const completed=!today.completed;
-  const r=await supabase.from("completed_days").upsert({user_id:user.id,task_date:today.date,completed,updated_at:new Date().toISOString()},{onConflict:"user_id,task_date"});
-  if(r.error){alert(r.error.message);return;} today=await getDay(today.date); renderToday(); await refreshStats();
+  if(today.percent<100){showToast("Finish all tasks to close the day");return;}
+  showToast("Today is already complete");
 });
 
 $("#saveNotes").addEventListener("click",async()=>{
@@ -406,16 +561,35 @@ $("#saveNotes").addEventListener("click",async()=>{
   if(r.error){alert(r.error.message);return;} today.notes=notes; $("#saveNotes").textContent="Saved ✓"; setTimeout(()=>$("#saveNotes").textContent="Save note",1000);
 });
 
+function countPerfectWeeks(rows){
+  const byDay=Object.fromEntries(rows.map(x=>[x.date,x]));
+  let current=0,best=0;
+  const maxWeek=Math.ceil(Math.min(100,100)/7);
+  for(let w=1;w<=maxWeek;w++){
+    let perfect=true;
+    for(let i=0;i<7;i++){
+      const dayNo=(w-1)*7+i+1;
+      if(dayNo>100) break;
+      const date=addDays(mission.start_date,dayNo-1);
+      const row=byDay[date];
+      if(!row || row.totalTasks<=0 || row.percent<100){perfect=false;break;}
+    }
+    if(perfect){current++;best=Math.max(best,current);} else current=0;
+  }
+  return {streak:current,best};
+}
 async function refreshStats(){
   history=await getHistory();
-  const completedDays=history.filter(x=>x.completed).length;
+  const completedDays=history.filter(x=>x.totalTasks>0 && x.percent===100).length;
   $("#daysCompleted").textContent=Math.min(completedDays,100);
   $("#daysRemaining").textContent=Math.max(0,100-completedDays);
   $("#missionPercent").textContent=`${Math.min(100,completedDays)}%`;
   $("#missionBar").style.width=`${Math.min(100,completedDays)}%`;
   const totalTasks=history.reduce((s,x)=>s+x.totalTasks,0), doneTasks=history.reduce((s,x)=>s+x.completedTasks,0);
   $("#completionRate").textContent=totalTasks?`${Math.round(doneTasks/totalTasks*100)}%`:"0%";
-  let streak=0; for(const x of [...history].reverse()){if(x.completed)streak++;else break;} $("#currentStreak").textContent=streak;
+  const weekly=countPerfectWeeks(history);
+  $("#currentStreak").textContent=weekly.streak;
+  const badge=$("#weekStreakBadge"); if(badge) badge.textContent=weekly.streak?`🔥 ${weekly.streak} week${weekly.streak===1?"":"s"} strong`:"🔥 Start your week streak";
   renderHistory(); drawChart();
 }
 
@@ -491,9 +665,38 @@ async function deleteProject(id){const p=projects.find(x=>String(x.id)===String(
 
 $("#manageChecklistBtn").addEventListener("click",openChecklistModal);
 window.addEventListener("pageshow",()=>clearNewTaskFields());
-$("#newTaskRepeatToggle").addEventListener("click",()=>{const panel=$("#newTaskRepeatPanel");panel.hidden=!panel.hidden;});
-document.querySelectorAll("#newTaskRepeatPanel .repeat-chip").forEach(btn=>btn.addEventListener("click",()=>{btn.classList.toggle("active");$("#newTaskRepeatSummary").textContent=repeatLabel(getNewTaskRepeatDays());}));
-document.querySelectorAll("#newTaskRepeatPanel .repeat-preset").forEach(btn=>btn.addEventListener("click",()=>{const p=btn.dataset.preset;const selected=p==='weekdays'?[1,2,3,4,5]:p==='weekends'?[0,6]:p==='all'?[0,1,2,3,4,5,6]:[];document.querySelectorAll("#newTaskRepeatPanel .repeat-chip").forEach(ch=>ch.classList.toggle('active',selected.includes(Number(ch.dataset.day))));$("#newTaskRepeatSummary").textContent=repeatLabel(selected);}));
+(function initNewTaskSchedule(){
+  const panel=$("#newTaskSchedulePanel"),toggle=$("#newTaskScheduleToggle"),summary=$("#newTaskScheduleSummary"),custom=$("#newTaskCustomDays");
+  if(!panel||!toggle||!summary||!custom)return;
+  panel.dataset.selectedDays=SCHEDULE_PRESETS.weekdays.join(",");
+  renderCustomDayChips(custom,SCHEDULE_PRESETS.weekdays);
+  toggle.addEventListener("click",()=>{
+    const opening=panel.hidden;
+    panel.hidden=!opening;
+    toggle.setAttribute("aria-expanded",String(opening));
+  });
+  panel.querySelectorAll("[data-new-preset]").forEach(btn=>btn.addEventListener("click",()=>{
+    const key=btn.dataset.newPreset;
+    if(key==="custom"){
+      custom.hidden=false;
+    }else{
+      const selected=SCHEDULE_PRESETS[key].slice();
+      panel.dataset.selectedDays=selected.join(",");
+      renderCustomDayChips(custom,selected);
+      custom.hidden=true;
+      summary.textContent=scheduleSummary(selected);
+    }
+    panel.querySelectorAll("[data-new-preset]").forEach(x=>x.classList.toggle("active",x===btn));
+  }));
+  custom.addEventListener("click",e=>{
+    const chip=e.target.closest(".v14-day-chip");if(!chip)return;
+    chip.classList.toggle("active");
+    const selected=[...custom.querySelectorAll(".v14-day-chip.active")].map(x=>Number(x.dataset.day)).sort((a,b)=>a-b);
+    panel.dataset.selectedDays=selected.join(",");
+    summary.textContent=scheduleSummary(selected);
+    panel.querySelectorAll("[data-new-preset]").forEach(x=>x.classList.toggle("active",x.dataset.newPreset==="custom"));
+  });
+})();
 $("#addTaskForm").addEventListener("submit",addManagedTask);
 $("#closeChecklistBtn").addEventListener("click",closeChecklistModal);
 document.querySelectorAll("[data-close-checklist-modal]").forEach(e=>e.addEventListener("click",closeChecklistModal));

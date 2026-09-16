@@ -226,3 +226,122 @@ body.celebration-lock{overflow:hidden}
 @keyframes ringBurst{0%{transform:translate(-50%,-50%) scale(.2);opacity:0}25%{opacity:.9}100%{transform:translate(-50%,-50%) scale(3.6);opacity:0}}
 @media(max-width:850px){.task-add-form-grid-v2{grid-template-columns:1fr 1fr}.task-add-form-grid-v2 label:first-child{grid-column:1/-1}.task-add-form-grid-v2 .task-add-form-actions{grid-column:1/-1}}
 @media(max-width:650px){.day-nav{align-items:flex-start}.day-nav-left{width:100%;justify-content:space-between}.day-nav-actions{width:100%;justify-content:flex-start}.task-add-form-grid-v2{grid-template-columns:1fr}.task-add-form-grid-v2 label:first-child{grid-column:auto}}
+
+/* ===== V14 UX polish ===== */
+.week-streak-badge{
+  display:inline-flex;align-items:center;gap:5px;
+  padding:7px 10px;border-radius:999px;
+  background:rgba(255,216,95,.08);
+  border:1px solid rgba(255,216,95,.18);
+  color:#ffe78b;font-size:10px;font-weight:900;
+  white-space:nowrap;
+  letter-spacing:.2px;
+}
+.week-streak-stat b{color:#ffe78b}
+
+.day-nav{
+  margin-top:12px;padding-top:10px;border-top:1px solid rgba(120,145,180,.16);
+  display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;
+}
+.day-nav-left{display:flex;align-items:center;gap:8px;min-width:0;color:var(--muted);font-size:10px;font-weight:800}
+.day-nav-left span:last-child{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.day-nav-dot{width:7px;height:7px;border-radius:50%;background:#63d9ae;box-shadow:0 0 12px rgba(99,217,174,.7);flex:0 0 auto}
+.day-nav-actions{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+.day-nav-link{padding:7px 11px!important;font-size:10px!important;border-radius:999px!important;transition:transform .18s ease,box-shadow .18s ease}
+.day-nav-link:hover{transform:translateY(-2px);box-shadow:0 8px 22px rgba(0,0,0,.2)}
+
+.task-add-form{margin-top:18px;padding:16px;border:1px dashed rgba(120,145,180,.28);border-radius:16px;background:linear-gradient(180deg,#0e1622,#0b121c)}
+.task-add-form-title{display:flex;justify-content:space-between;gap:12px;margin-bottom:14px}
+.task-add-form-title strong{display:block;font-size:14px}
+.task-add-form-title span{display:block;color:var(--muted);font-size:11px;margin-top:4px}
+.task-add-form-grid-simple{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(130px,.55fr) minmax(150px,.7fr) auto;gap:10px;align-items:end}
+.schedule-control{display:flex;align-items:center;gap:8px;margin-top:10px}
+.schedule-label{font-size:10px;font-weight:900;color:var(--muted);text-transform:uppercase;letter-spacing:.8px}
+.schedule-pill{
+  border:1px solid rgba(124,156,255,.25);background:rgba(124,156,255,.07);
+  color:#c9d7ff;border-radius:999px;padding:8px 11px;font-weight:900;font-size:10px;cursor:pointer;
+  transition:all .18s ease;
+}
+.schedule-pill:hover{transform:translateY(-1px);border-color:rgba(124,156,255,.5);background:rgba(124,156,255,.11)}
+.schedule-pill em{font-style:normal;color:#8595b8;margin-left:3px;font-weight:800}
+.schedule-chevron{opacity:.65;margin-left:2px}
+.schedule-popover{
+  margin-top:10px;padding:12px;border-radius:14px;
+  background:#0a1019;border:1px solid rgba(124,156,255,.18);
+  box-shadow:0 18px 50px rgba(0,0,0,.2);
+  animation:softPanelIn .18s ease both;
+}
+.schedule-popover-title{font-size:10px;font-weight:900;letter-spacing:.7px;text-transform:uppercase;color:var(--muted);margin-bottom:9px}
+.schedule-preset-grid{display:flex;gap:7px;flex-wrap:wrap}
+.schedule-preset{
+  border:1px solid rgba(120,145,180,.28);background:#111b2a;color:#a9b7cf;
+  border-radius:999px;padding:7px 10px;font-size:10px;font-weight:900;cursor:pointer;
+  transition:all .18s ease;
+}
+.schedule-preset:hover{transform:translateY(-1px);color:#e7efff;border-color:rgba(124,156,255,.5)}
+.schedule-preset.active{background:rgba(99,217,174,.12);color:#7be6bd;border-color:rgba(99,217,174,.42);box-shadow:0 0 0 1px rgba(99,217,174,.07) inset}
+.custom-days{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
+.v14-day-chip{
+  min-width:38px;border:1px solid rgba(120,145,180,.25);background:#0f1724;color:#94a4be;
+  border-radius:999px;padding:7px 9px;font-size:10px;font-weight:900;cursor:pointer;transition:all .18s ease;
+}
+.v14-day-chip.active{background:rgba(124,156,255,.13);border-color:rgba(124,156,255,.42);color:#d9e3ff;box-shadow:0 0 12px rgba(124,156,255,.12)}
+.v14-day-chip:hover{transform:translateY(-1px)}
+
+.task-add-form input:focus,.task-manager-row input:focus{
+  border-color:rgba(124,156,255,.7)!important;
+  box-shadow:0 0 0 3px rgba(124,156,255,.08);
+}
+.task-manager-row{
+  background:linear-gradient(180deg,#0d1521,#0b121c);
+  transition:transform .18s ease,border-color .18s ease,box-shadow .18s ease;
+}
+.task-manager-row:hover{transform:translateY(-1px);border-color:rgba(124,156,255,.26);box-shadow:0 12px 30px rgba(0,0,0,.14)}
+.task-title-wrap{min-width:0}
+.task-title-wrap .task-manager-name{margin-bottom:6px}
+.task-schedule-inline{display:inline-flex;padding:4px 8px;border-radius:999px;background:rgba(99,217,174,.08);border:1px solid rgba(99,217,174,.16);color:#73ddb3;font-size:9px;font-weight:900}
+.task-manager-controls{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:11px;flex-wrap:wrap}
+.task-manager-row-actions{display:flex;justify-content:flex-end;gap:7px}
+.task-manager-row-actions button{padding:8px 11px}
+.task-manager-row-actions .primary{margin-top:0}
+.task-delete{color:#ff9aa6}
+
+.task{
+  transition:transform .2s ease,background .2s ease,border-color .2s ease,box-shadow .2s ease;
+}
+.task:hover{transform:translateY(-1px);border-color:rgba(124,156,255,.34);box-shadow:0 10px 28px rgba(0,0,0,.12)}
+.task input{accent-color:#63d9ae}
+.task.done{animation:taskDonePop .38s cubic-bezier(.2,.85,.25,1)}
+.task.done .task-name{text-decoration-thickness:2px}
+
+.progress-fill,.ring{transition:all .55s cubic-bezier(.2,.75,.2,1)}
+.primary{transition:transform .18s ease,box-shadow .18s ease,filter .18s ease}
+.primary:hover{transform:translateY(-1px);box-shadow:0 10px 24px rgba(0,0,0,.18)}
+.primary:active{transform:translateY(0) scale(.98)}
+
+.celebration-overlay.open .celebration-card{animation:celebrationCardIn .66s cubic-bezier(.18,.88,.22,1) both,celebrationFloat 4.5s ease-in-out .7s infinite}
+.celebration-overlay.weekly .celebration-card{animation-duration:.8s,4s}
+.celebration-overlay.final .celebration-card{animation-duration:.9s,3.8s}
+.celebration-overlay.weekly .party-cake{animation:partyCakePop .8s cubic-bezier(.2,.8,.2,1) both,partyCakeFloat 2.8s ease-in-out .8s infinite}
+.celebration-overlay:not(.weekly):not(.final) .celebration-confetti{filter:saturate(1.1)}
+
+@keyframes softPanelIn{from{opacity:0;transform:translateY(-4px) scale(.985)}to{opacity:1;transform:none}}
+@keyframes taskDonePop{0%{transform:scale(.985)}45%{transform:scale(1.012)}100%{transform:scale(1)}}
+@keyframes celebrationFloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-5px)}}
+@keyframes partyCakePop{0%{opacity:0;transform:scale(.45) rotate(-12deg)}70%{opacity:1;transform:scale(1.08) rotate(4deg)}100%{transform:scale(1) rotate(0)}}
+@keyframes partyCakeFloat{0%,100%{transform:translateY(0) rotate(-2deg)}50%{transform:translateY(-8px) rotate(2deg)}}
+
+@media(max-width:850px){
+  .task-add-form-grid-simple{grid-template-columns:1fr 1fr}
+  .task-add-form-grid-simple label:first-child{grid-column:1/-1}
+  .task-add-form-actions{grid-column:1/-1}
+  .mission-head-actions{flex-wrap:wrap}
+}
+@media(max-width:650px){
+  .task-add-form-grid-simple{grid-template-columns:1fr}
+  .task-add-form-grid-simple label:first-child{grid-column:auto}
+  .week-streak-badge{order:3;width:100%;justify-content:center}
+  .task-manager-controls{align-items:stretch}
+  .task-manager-row-actions{width:100%}
+  .task-manager-row-actions button{flex:1}
+}
