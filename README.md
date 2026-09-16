@@ -1,6 +1,7 @@
-# MY_TASKS V15 https://syedjunaid23.github.io/MY_TASKS/
+# MY_TASKS V15 
 
 V15 is a UX-focused refinement of the existing tracker. It keeps the Projects section, Mission start date, Daily Work chart, history, authentication, and existing Supabase database setup.
+https://syedjunaid23.github.io/MY_TASKS/
 
 ## Main fixes
 - Work-ahead no longer jumps back to today during the background refresh.
