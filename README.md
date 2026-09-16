@@ -1,26 +1,30 @@
-# MY_TASKS — Personal 100-Day Tracker
+# MY_TASKS — preserved tracker + custom checklist
 
-This version keeps the existing tracker design while making the checklist and mission user-controlled.
+This build keeps the original tracker behavior and visual structure from the supplied ZIP, while adding only the requested controls:
 
-## User-controlled setup
-- Starts with **zero default checklist tasks**.
-- Add your own task names and times.
-- Edit task names and times later.
-- Remove tasks without deleting their existing completion records.
-- Reorder tasks.
-- Projects also start empty and are private to the signed-in account.
-- Choose the 100-day mission start date yourself: tomorrow, next month, or any date.
-- The dashboard calculates Day 1–Day 100 from that chosen start date.
-- Existing daily completion records continue to feed the history and Daily Work chart.
+- Daily checklist starts empty for the active checklist.
+- No browser `prompt()` is used for adding tasks.
+- `⚙ Edit checklist` opens a proper in-page editor.
+- Add, rename, change daily time, remove, and reorder tasks.
+- The original Daily Work 100-day bar chart is preserved.
+- The original 100-day history table/grid is preserved.
+- Daily notes, productivity boosters, day-detail modal, backup, auth, and daily rollover are preserved.
+- `⚙ Mission` lets you choose the 100-day start date.
+- Projects remain a separate private section with create/edit/delete and target time.
 
-## Supabase
-The frontend uses the existing Supabase project configured in `app.js`. User-owned checklist tasks expect the flexible task fields already discussed for this project (`user_id`, `active`, `weekday_minutes`, `holiday_minutes`, and `sort_order`). No default tasks are inserted by the frontend.
+## Important compatibility choice
 
-## Deployment
-Upload these four files to the GitHub Pages repository:
+The supplied database schema for `tasks` does **not** contain the `active` column used by the previous build, so this version uses the original task columns (`id`, `name`, `weekday_minutes`, `holiday_minutes`, `sort_order`) and does not require a database migration or SQL file.
+
+Existing task rows are left untouched so the old history can still be reconstructed. The new checklist uses task IDs created/selected by this build and stores that selection in the browser for this signed-in account.
+
+## Deploy
+
+Replace only these four GitHub Pages files:
+
 - `index.html`
 - `app.js`
 - `styles.css`
 - `README.md`
 
-No SQL file is included in this package.
+No SQL file is included.

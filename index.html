@@ -64,6 +64,7 @@
         </div>
       </section>
 
+      <section class="card history-card"><div class="card-head"><div><span class="label">HISTORY</span><h2>100-day record</h2></div><div class="actions"><button id="exportBtn" class="secondary">Export backup</button><label class="secondary file-btn">Import backup<input id="importFile" type="file" accept="application/json"></label></div></div><div id="historyGrid" class="history-grid"></div><div class="legend"><span><i class="dot done"></i> completed</span><span><i class="dot partial"></i> partial</span><span><i class="dot empty"></i> no record</span></div></section>
       <section class="card projects-card">
         <div class="card-head">
           <div><span class="label">PROJECTS</span><h2>My projects</h2></div>
@@ -72,10 +73,10 @@
         <div id="projectsList" class="projects-list"></div>
       </section>
 
-      <section class="card history-card"><div class="card-head"><div><span class="label">HISTORY</span><h2>100-day record</h2></div><div class="actions"><button id="exportBtn" class="secondary">Export backup</button><label class="secondary file-btn">Import backup<input id="importFile" type="file" accept="application/json"></label></div></div><div id="historyGrid" class="history-grid"></div><div class="legend"><span><i class="dot done"></i> completed</span><span><i class="dot partial"></i> partial</span><span><i class="dot empty"></i> no record</span></div></section>
-      <section class="card rules-card"><h3>Your setup</h3><div class="schedule-cols"><div><b>Checklist</b><span id="setupChecklistSummary">No tasks yet. Use “Edit checklist” to add your own.</span></div><div><b>Mission start</b><span id="setupMissionSummary">Choose when your 100-day mission starts.</span></div></div></section>
+      <section class="card rules-card"><h3>Your setup</h3><div class="schedule-cols"><div><b>Checklist</b><span id="setupChecklistSummary">Your checklist is empty. Add your own tasks.</span></div><div><b>Mission start</b><span id="setupMissionSummary">Choose when your 100-day mission starts.</span></div></div></section>
     </main>
   </div>
+
 
   <div id="checklistModal" class="modal" aria-hidden="true">
     <div class="modal-backdrop" data-close-checklist-modal></div>
@@ -83,9 +84,17 @@
       <button class="modal-close" data-close-checklist-modal aria-label="Close">×</button>
       <div class="modal-kicker">YOUR DAILY CHECKLIST</div>
       <h2 id="checklistModalTitle">Edit checklist</h2>
-      <p class="muted project-private-note">Nothing is predefined. Add, edit, disable, or remove your own tasks and times.</p>
+      <p class="muted project-private-note">Nothing is predefined in your active checklist. Add your own task name and daily time.</p>
       <div id="taskManagerList" class="task-manager-list"></div>
-      <div class="task-manager-actions"><button id="addTaskBtn" class="secondary" type="button">＋ Add task</button><button id="closeChecklistBtn" class="primary" type="button">Done</button></div>
+      <form id="addTaskForm" class="task-add-form">
+        <div class="task-add-form-grid">
+          <label>Task name<input id="newTaskName" type="text" maxlength="100" placeholder="e.g. Python" required></label>
+          <label>Hours<input id="newTaskHours" type="number" min="0" max="9999" value="1" inputmode="numeric"></label>
+          <label>Minutes<input id="newTaskMinutes" type="number" min="0" max="59" value="0" inputmode="numeric"></label>
+          <div class="task-add-form-actions"><button class="primary" type="submit">＋ Add task</button></div>
+        </div>
+      </form>
+      <div class="task-manager-actions"><span class="muted small">Changes are saved to the tracker.</span><button id="closeChecklistBtn" class="primary" type="button">Done</button></div>
     </section>
   </div>
 
@@ -95,10 +104,10 @@
       <button class="modal-close" data-close-mission-modal aria-label="Close">×</button>
       <div class="modal-kicker">100-DAY MISSION</div>
       <h2 id="missionModalTitle">Mission settings</h2>
-      <p class="muted project-private-note">You choose the start date. The tracker will calculate Day 1, Day 2, etc. from that date.</p>
+      <p class="muted project-private-note">You choose the start date. The tracker calculates Day 1 through Day 100 from that date.</p>
       <form id="missionForm" class="project-form">
         <label>Start date<input id="missionStartDate" type="date" required></label>
-        <p class="muted small">Your 100-day timeline can start tomorrow, next month, or any other date you choose.</p>
+        <p class="muted small">Tomorrow, next month, or any date you choose.</p>
         <div class="project-form-actions"><button id="cancelMissionBtn" class="secondary" type="button">Cancel</button><button class="primary" type="submit">Save start date</button></div>
       </form>
     </section>
@@ -113,15 +122,9 @@
       <p class="muted project-private-note">This project is private to your account.</p>
       <form id="projectForm" class="project-form">
         <label>Project name<input id="projectName" type="text" maxlength="100" placeholder="e.g. Revit Automation" required></label>
-        <div class="project-time-grid">
-          <label>Hours<input id="projectHours" type="number" min="0" max="9999" value="0" inputmode="numeric"></label>
-          <label>Minutes<input id="projectMinutes" type="number" min="0" max="59" value="0" inputmode="numeric"></label>
-        </div>
+        <div class="project-time-grid"><label>Hours<input id="projectHours" type="number" min="0" max="9999" value="0" inputmode="numeric"></label><label>Minutes<input id="projectMinutes" type="number" min="0" max="59" value="0" inputmode="numeric"></label></div>
         <p class="muted small">Set the total target time for this project. You can edit it later.</p>
-        <div class="project-form-actions">
-          <button id="cancelProjectBtn" class="secondary" type="button">Cancel</button>
-          <button class="primary" type="submit">Save project</button>
-        </div>
+        <div class="project-form-actions"><button id="cancelProjectBtn" class="secondary" type="button">Cancel</button><button class="primary" type="submit">Save project</button></div>
       </form>
     </section>
   </div>
@@ -132,6 +135,6 @@
   <footer>Cloud-synced tracker · GitHub Pages ready · Supabase database · automatic daily rollover · exportable backups</footer>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="app.js?v=8"></script>
+  <script src="app.js?v=9"></script>
 </body>
 </html>
