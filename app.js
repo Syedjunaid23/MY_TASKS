@@ -10,6 +10,7 @@ let user = null;
 let mission = null;
 let tasks = [];
 let today = null;
+let selectedDate = null;
 let history = [];
 let allTasks = [];
 let customTaskIds = [];
@@ -27,10 +28,19 @@ function addDays(k,n){ const d=dateFromKey(k); d.setUTCDate(d.getUTCDate()+n); r
 function daysBetween(a,b){ return Math.round((dateFromKey(b)-dateFromKey(a))/86400000); }
 function formatDate(k,opts={weekday:"long",day:"numeric",month:"long",year:"numeric"}){ return dateFromKey(k).toLocaleDateString("en-IN",opts); }
 function isHoliday(k){ const d=dateFromKey(k); const dow=d.getUTCDay(); if(dow===0)return true; if(dow===6){ const day=d.getUTCDate(); return day>=8&&day<=14; } return false; }
+function isWeekend(k){ const dow=dateFromKey(k).getUTCDay(); return dow===0 || dow===6; }
+function dayIndex(k){ return dateFromKey(k).getUTCDay(); }
 function missionDayNumber(k){ if(!mission)return null; return daysBetween(mission.start_date,k)+1; }
-function totalMinutesFor(k){ return tasks.filter(t=>isTaskScheduled(t,k)).reduce((s,t)=>s+Number(t.minutes),0); }
+function totalMinutesFor(k){ return tasks.filter(t=>isTaskScheduled(t,k)).reduce((s,t)=>s+Number(taskMinutesForDate(t,k)),0); }
 const LEGACY_HOLIDAY_NAMES = new Set(["Python", "C#", "BIM ISO", "OpenFOAM", "C++", "Git", "SUB"]);
-function isTaskScheduled(t,k){ return t.custom ? Number(isHoliday(k) ? t.holiday : t.weekday) > 0 : (isHoliday(k) ? LEGACY_HOLIDAY_NAMES.has(t.name) : true); }
+function isTaskScheduled(t,k){
+  if(t.custom){ const idx=dayIndex(k); return Array.isArray(t.repeatDays) && t.repeatDays.includes(idx) && Number(taskMinutesForDate(t,k))>0; }
+  return (isHoliday(k) ? LEGACY_HOLIDAY_NAMES.has(t.name) : true);
+}
+function taskMinutesForDate(t,k){
+  if(!t.custom) return Number(isHoliday(k) ? t.holiday : t.weekday) || 0;
+  return Number(isWeekend(k) ? (t.weekendMinutes ?? t.holiday ?? t.weekday) : t.weekday) || 0;
+}
 
 function showToast(msg){ const t=$("#toast"); t.textContent=msg; t.classList.add("show"); setTimeout(()=>t.classList.remove("show"),1800); }
 function setAuthMessage(msg,error=false){ const e=$("#authMessage"); e.textContent=msg; e.className=`auth-message ${error?"error":""}`; }
@@ -67,6 +77,8 @@ async function loadTasks(){
       name:t.name,
       weekday:Number(t.weekday_minutes)||0,
       holiday:Number(t.holiday_minutes ?? t.weekday_minutes)||0,
+      weekendMinutes:Number(t.weekend_minutes ?? t.holiday_minutes ?? t.weekday_minutes)||0,
+      repeatDays:Array.isArray(t.repeat_days)?t.repeat_days.map(Number):[0,1,2,3,4,5,6],
       sort_order:Number(t.sort_order)||0,
       custom:String(t.user_id||"")===String(user.id)
     }));
@@ -84,12 +96,13 @@ async function getDay(date){
   if(dt.error||nt.error||ct.error) throw (dt.error||nt.error||ct.error);
   const completedMap=Object.fromEntries((dt.data||[]).map(x=>[x.task_id,!!x.completed]));
   const holiday=isHoliday(date);
-  const dayTasks=tasks.filter(t=>isTaskScheduled(t,date)).map(t=>({...t,minutes:holiday?t.holiday:t.weekday,completed:!!completedMap[t.id]}));
+  const weekend=isWeekend(date);
+  const dayTasks=tasks.filter(t=>isTaskScheduled(t,date)).map(t=>({...t,minutes:taskMinutesForDate(t,date),completed:!!completedMap[t.id]}));
   const completedTasks=dayTasks.filter(t=>t.completed).length;
   const completedMinutes=dayTasks.filter(t=>t.completed).reduce((s,t)=>s+t.minutes,0);
   const totalMinutes=dayTasks.reduce((s,t)=>s+t.minutes,0);
   const percent=totalMinutes?Math.round(completedMinutes/totalMinutes*100):0;
-  return {date,tasks:dayTasks,completedTasks,totalTasks:dayTasks.length,completedMinutes,totalMinutes,percent,completed:!!ct.data?.completed,notes:nt.data?.notes||"",isHolidayPlan:holiday};
+  return {date,tasks:dayTasks,completedTasks,totalTasks:dayTasks.length,completedMinutes,totalMinutes,percent,completed:!!ct.data?.completed,notes:nt.data?.notes||"",isHolidayPlan:holiday,isWeekendPlan:weekend};
 }
 
 async function getHistory(){
@@ -99,7 +112,7 @@ async function getHistory(){
     supabase.from("completed_days").select("task_date,completed").eq("user_id",user.id)
   ]);
   if(dt.error||nt.error||ct.error) throw (dt.error||nt.error||ct.error);
-  const end=dateKeyInIST(); const start=mission.start_date;
+  const realToday=dateKeyInIST(); const end=selectedDate && selectedDate>realToday ? selectedDate : realToday; const start=mission.start_date;
   const doneMap=Object.fromEntries((ct.data||[]).map(x=>[x.task_date,!!x.completed]));
   const noteMap=Object.fromEntries((nt.data||[]).map(x=>[x.task_date,x.notes||""]));
   const taskMap={}; for(const x of dt.data||[]){(taskMap[x.task_date] ||= {})[x.task_id]=!!x.completed;}
@@ -112,7 +125,7 @@ async function getHistory(){
     const useCustom=!!transition && date>=transition;
     const source=useCustom?customHistoryTasks:allTasks.filter(t=>!t.custom);
     const holiday=isHoliday(date);
-    const dayTasks=source.filter(t=>isTaskScheduled(t,date)).map(t=>({id:t.id,name:t.name,minutes:holiday?t.holiday:t.weekday,completed:!!taskMap[date]?.[t.id]}));
+    const dayTasks=source.filter(t=>isTaskScheduled(t,date)).map(t=>({id:t.id,name:t.name,minutes:taskMinutesForDate(t,date),completed:!!taskMap[date]?.[t.id]}));
     const totalTasks=dayTasks.length, completedTasks=dayTasks.filter(t=>t.completed).length;
     const totalMinutes=dayTasks.reduce((s,t)=>s+t.minutes,0), completedMinutes=dayTasks.filter(t=>t.completed).reduce((s,t)=>s+t.minutes,0);
     rows.push({date,tasks:dayTasks,totalTasks,completedTasks,totalMinutes,completedMinutes,percent:totalMinutes?Math.round(completedMinutes/totalMinutes*100):0,completed:!!doneMap[date],notes:noteMap[date]||"",isHolidayPlan:holiday});
@@ -120,18 +133,42 @@ async function getHistory(){
   return rows;
 }
 
+function renderDayNavigator({dayNo,workingAhead,beforeMission,afterMission,realToday}){
+  const box=$("#dayNav"); if(!box)return;
+  if(beforeMission||afterMission){box.innerHTML="";box.hidden=true;return;}
+  const maxDate=addDays(mission.start_date,99);
+  const canPrev=dayNo>1, canNext=dayNo<100;
+  box.hidden=false;
+  const back=workingAhead?'<button id="backToTodayBtn" class="day-nav-link secondary" type="button">↩ Today</button>':"";
+  const workAhead=(!workingAhead && today.completed && canNext)?'<button id="workAheadBtn" class="day-nav-link primary" type="button">Work ahead →</button>':"";
+  const next=workingAhead&&canNext?'<button id="nextDayBtn" class="day-nav-link primary" type="button">Next day →</button>':"";
+  const prev=workingAhead&&canPrev?'<button id="prevDayBtn" class="day-nav-link secondary" type="button">← Previous</button>':"";
+  box.innerHTML=`<div class="day-nav-left"><input id="dayPicker" class="day-picker" type="date" min="${mission.start_date}" max="${maxDate}" value="${today.date}" aria-label="Choose mission day"><span>${workingAhead?`Working ahead · ${formatDate(today.date,{day:"numeric",month:"short"})}`:"Complete today to unlock Work ahead"}</span></div><div class="day-nav-actions">${back}${prev}${next}${workAhead}</div>`;
+  $("#dayPicker")?.addEventListener("change",async e=>{if(e.target.value)await selectMissionDate(e.target.value);});
+  $("#backToTodayBtn")?.addEventListener("click",()=>selectMissionDate(realToday));
+  $("#workAheadBtn")?.addEventListener("click",()=>selectMissionDate(addDays(today.date,1)));
+  $("#nextDayBtn")?.addEventListener("click",()=>selectMissionDate(addDays(today.date,1)));
+  $("#prevDayBtn")?.addEventListener("click",()=>selectMissionDate(addDays(today.date,-1)));
+}
+async function selectMissionDate(date){
+  const n=missionDayNumber(date); if(n<1||n>100){showToast("Choose a date inside the 100-day mission");return;}
+  selectedDate=date; today=await getDay(date); loadBoosters(); renderToday(); await refreshStats();
+}
 function renderToday(){
   const dayNo=missionDayNumber(today.date);
+  const realToday=dateKeyInIST();
+  const workingAhead=today.date>realToday;
   const beforeMission=dayNo<1, afterMission=dayNo>100;
-  $("#planTitle").textContent=beforeMission?`Starts ${formatDate(mission.start_date,{day:"numeric",month:"short",year:"numeric"})}`:afterMission?"100-Day Mission Complete":(today.isHolidayPlan?"Holiday / Sunday Plan":"Normal Working-Day Plan");
-  $("#planBadge").textContent=beforeMission?"UPCOMING":afterMission?"FINISHED":(today.isHolidayPlan?"HOLIDAY":"WORKDAY");
+  $("#planTitle").textContent=beforeMission?`Starts ${formatDate(mission.start_date,{day:"numeric",month:"short",year:"numeric"})}`:afterMission?"100-Day Mission Complete":(today.isWeekendPlan?"Weekend Plan":"Normal Working-Day Plan");
+  $("#planBadge").textContent=beforeMission?"UPCOMING":afterMission?"FINISHED":workingAhead?"WORK AHEAD":(today.isWeekendPlan?"WEEKEND":"WORKDAY");
   $("#todayPercent").textContent=`${today.percent}%`;
   $(".ring").style.setProperty("--p",`${today.percent}%`);
   $("#todayTasks").textContent=`${today.completedTasks} / ${today.totalTasks} tasks`;
   $("#todayMinutes").textContent=`${fmtMinutes(today.completedMinutes)} / ${fmtMinutes(today.totalMinutes)}`;
   $("#notes").value=today.notes||"";
   $("#completeDayBtn").textContent=today.completed?"✓ Day completed":"Mark day complete";
-  $("#checklistTitle").textContent=beforeMission?"Not started":afterMission?"Mission complete":`Day ${dayNo} of 100`;
+  renderDayNavigator({dayNo,workingAhead,beforeMission,afterMission,realToday});
+  $("#checklistTitle").textContent=beforeMission?"Not started":afterMission?"Mission complete":`Day ${dayNo} of 100${workingAhead?" · Working ahead":""}`;
   const list=$("#taskList"); list.innerHTML="";
   if(beforeMission){list.innerHTML=`<div class="projects-empty"><b>Your mission hasn't started yet.</b><span>Choose any start date from the ⚙ Mission button.</span></div>`;renderSetupSummary();return;}
   if(afterMission){list.innerHTML=`<div class="projects-empty"><b>Your 100-day mission is complete.</b><span>Choose a new start date from the ⚙ Mission button to begin another run.</span></div>`;renderSetupSummary();return;}
@@ -146,7 +183,7 @@ function escapeHtml(s){return String(s).replace(/[&<>'"]/g,c=>({'&':'&amp;','<':
 
 
 function renderSetupSummary(){
-  const s=$("#setupChecklistSummary"); if(s) s.textContent=tasks.length?`${tasks.length} custom task${tasks.length===1?"":"s"} configured.`:"Your checklist is empty. Add your own tasks.";
+  const s=$("#setupChecklistSummary"); if(s) s.textContent=tasks.length?`${tasks.length} custom task${tasks.length===1?"":"s"} configured with repeat schedules.`:"Your checklist is empty. Add your own tasks.";
   const m=$("#setupMissionSummary"); if(m&&mission?.start_date) m.textContent=`Starts ${formatDate(mission.start_date,{day:"numeric",month:"long",year:"numeric"})}.`;
 }
 function openChecklistModal(){
@@ -158,92 +195,64 @@ function openChecklistModal(){
   setTimeout(clearNewTaskFields,150);
 }
 function closeChecklistModal(){$("#checklistModal").classList.remove("open");$("#checklistModal").setAttribute("aria-hidden","true");}
+function repeatLabel(days){
+  if(!Array.isArray(days)||!days.length)return "Never"; const names=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"]; return days.slice().sort((a,b)=>a-b).map(d=>names[d]).join(" · ");
+}
 function renderTaskManager(){
   const box=$("#taskManagerList"); if(!box)return;
   if(!tasks.length){box.innerHTML='<div class="manager-empty"><b>Your checklist is empty</b><span>Add your first task below. Nothing is predefined.</span></div>';return;}
-  box.innerHTML=tasks.map((t,i)=>`<div class="task-manager-row" data-task-id="${escapeHtml(t.id)}">
-    <div class="task-manager-top"><input class="task-manager-name" value="${escapeHtml(t.name)}" maxlength="100" aria-label="Task name"><button class="secondary task-delete" type="button">Remove</button></div>
-    <div class="task-time-grid"><label>Daily hours<input class="task-weekday-hours" type="number" min="0" max="9999" value="${Math.floor(t.weekday/60)}"></label><label>Daily minutes<input class="task-weekday-minutes" type="number" min="0" max="59" value="${t.weekday%60}"></label></div>
-    <div class="task-manager-row-actions"><button class="secondary task-up" type="button" ${i===0?'disabled':''}>↑</button><button class="secondary task-down" type="button" ${i===tasks.length-1?'disabled':''}>↓</button><button class="primary task-save" type="button">Save changes</button></div>
-  </div>`).join("");
+  box.innerHTML=tasks.map((t,i)=>{
+    const days=Array.isArray(t.repeatDays)?t.repeatDays:[0,1,2,3,4,5,6];
+    return `<div class="task-manager-row" data-task-id="${escapeHtml(t.id)}">
+      <div class="task-manager-top"><input class="task-manager-name" value="${escapeHtml(t.name)}" maxlength="100" aria-label="Task name" autocomplete="off"><button class="secondary task-delete" type="button">Remove</button></div>
+      <div class="task-time-grid"><label>Weekday time<input class="task-weekday-time" type="text" inputmode="numeric" value="${formatTimeInput(t.weekday)}" placeholder="1h 30m" autocomplete="off"><small>Mon–Fri</small></label><label>Weekend time<input class="task-weekend-time" type="text" inputmode="numeric" value="${formatTimeInput(t.weekendMinutes)}" placeholder="2h" autocomplete="off"><small>Sat–Sun</small></label></div>
+      <div class="task-repeat-line"><button class="secondary task-repeat-toggle" type="button">↻ Repeat <span>${repeatLabel(days)}</span></button></div>
+      <div class="task-repeat-panel" hidden><div class="repeat-title">Repeat this task on</div><div class="repeat-chips">${["Sun","Mon","Tue","Wed","Thu","Fri","Sat"].map((name,d)=>`<button type="button" class="repeat-chip ${days.includes(d)?"active":""}" data-day="${d}">${name}</button>`).join("")}</div><div class="repeat-quick"><button type="button" class="secondary repeat-preset" data-preset="weekdays">Mon–Fri</button><button type="button" class="secondary repeat-preset" data-preset="weekends">Sat–Sun</button><button type="button" class="secondary repeat-preset" data-preset="all">Every day</button><button type="button" class="secondary repeat-preset" data-preset="none">Never</button></div></div>
+      <div class="task-manager-row-actions"><button class="secondary task-up" type="button" ${i===0?'disabled':''}>↑</button><button class="secondary task-down" type="button" ${i===tasks.length-1?'disabled':''}>↓</button><button class="primary task-save" type="button">Save changes</button></div>
+    </div>`;
+  }).join("");
   box.querySelectorAll('.task-save').forEach(b=>b.addEventListener('click',()=>saveManagedTask(b.closest('.task-manager-row'))));
   box.querySelectorAll('.task-delete').forEach(b=>b.addEventListener('click',()=>deleteManagedTask(b.closest('.task-manager-row').dataset.taskId)));
   box.querySelectorAll('.task-up').forEach(b=>b.addEventListener('click',()=>moveManagedTask(b.closest('.task-manager-row').dataset.taskId,-1)));
   box.querySelectorAll('.task-down').forEach(b=>b.addEventListener('click',()=>moveManagedTask(b.closest('.task-manager-row').dataset.taskId,1)));
+  box.querySelectorAll('.task-repeat-toggle').forEach(btn=>btn.addEventListener('click',()=>{const panel=btn.closest('.task-manager-row').querySelector('.task-repeat-panel');panel.hidden=!panel.hidden;}));
+  box.querySelectorAll('.repeat-chip').forEach(btn=>btn.addEventListener('click',()=>{btn.classList.toggle('active');const row=btn.closest('.task-manager-row');row.querySelector('.task-repeat-toggle span').textContent=repeatLabel(getSelectedRepeatDays(row));}));
+  box.querySelectorAll('.repeat-preset').forEach(btn=>btn.addEventListener('click',()=>{const row=btn.closest('.task-manager-row');const p=btn.dataset.preset;const selected=p==='weekdays'?[1,2,3,4,5]:p==='weekends'?[0,6]:p==='all'?[0,1,2,3,4,5,6]:[];row.querySelectorAll('.repeat-chip').forEach(ch=>ch.classList.toggle('active',selected.includes(Number(ch.dataset.day))));row.querySelector('.task-repeat-toggle span').textContent=repeatLabel(selected);}));
 }
-function readTaskMinutes(row){const h=Math.max(0,parseInt(row.querySelector('.task-weekday-hours').value,10)||0);const m=Math.max(0,parseInt(row.querySelector('.task-weekday-minutes').value,10)||0);return h*60+Math.min(59,m);}
-function saveCustomTaskSnapshot(task){
-  const key=`tracker-custom-task-snapshot-${user.id}`;
-  const rows=JSON.parse(localStorage.getItem(key)||"{}");
-  rows[String(task.id)]={id:task.id,name:task.name,weekday:Number(task.weekday)||0,holiday:Number(task.holiday)||0,sort_order:Number(task.sort_order)||0,custom:true};
-  localStorage.setItem(key,JSON.stringify(rows));
-}
-function loadCustomTaskSnapshot(){try{return JSON.parse(localStorage.getItem(`tracker-custom-task-snapshot-${user.id}`)||"{}")}catch{return {}}}
+function getSelectedRepeatDays(row){return [...row.querySelectorAll('.repeat-chip.active')].map(x=>Number(x.dataset.day)).sort((a,b)=>a-b);}
+function parseTimeInput(text){const raw=String(text||'').trim().toLowerCase();if(!raw)return 0;const h=(raw.match(/(\\d+)\\s*h/)||[])[1],m=(raw.match(/(\\d+)\\s*m/)||[])[1];if(h||m)return Math.max(0,(parseInt(h||'0',10)*60)+Math.min(59,parseInt(m||'0',10)));const n=parseInt(raw,10);return Number.isFinite(n)?Math.max(0,n):0;}
+function formatTimeInput(m){m=Math.max(0,Number(m)||0);const h=Math.floor(m/60),mins=m%60;if(h&&mins)return `${h}h ${mins}m`;if(h)return `${h}h`;return mins?`${mins}m`:'';}
+function saveCustomTaskSnapshot(task){const key=`tracker-custom-task-snapshot-${user.id}`;const rows=JSON.parse(localStorage.getItem(key)||'{}');rows[String(task.id)]={id:task.id,name:task.name,weekday:Number(task.weekday)||0,holiday:Number(task.holiday)||0,weekendMinutes:Number(task.weekendMinutes??task.holiday??task.weekday)||0,repeatDays:Array.isArray(task.repeatDays)?task.repeatDays.slice():[0,1,2,3,4,5,6],sort_order:Number(task.sort_order)||0,custom:true};localStorage.setItem(key,JSON.stringify(rows));}
+function loadCustomTaskSnapshot(){try{return JSON.parse(localStorage.getItem(`tracker-custom-task-snapshot-${user.id}`)||'{}')}catch{return {}}}
 async function saveManagedTask(row){
-  const id=row.dataset.taskId;
-  const name=row.querySelector('.task-manager-name').value.trim();
-  const minutes=readTaskMinutes(row);
-  if(!name){showToast("Enter a task name");return;}
-  if(minutes<=0){showToast("Set a time greater than 0 minutes");return;}
-  const r=await supabase.rpc("tracker_update_task",{p_task_id:String(id),p_name:name,p_minutes:minutes});
+  const id=row.dataset.taskId,name=row.querySelector('.task-manager-name').value.trim();
+  const weekdayMinutes=parseTimeInput(row.querySelector('.task-weekday-time').value), weekendMinutes=parseTimeInput(row.querySelector('.task-weekend-time').value);
+  const repeatDays=getSelectedRepeatDays(row);
+  if(!name){showToast('Enter a task name');return;} if(!repeatDays.length){showToast('Choose at least one repeat day');return;}
+  if(weekdayMinutes<=0 && repeatDays.some(d=>d>=1&&d<=5)){showToast('Set a weekday time greater than 0');return;}
+  if(weekendMinutes<=0 && repeatDays.some(d=>d===0||d===6)){showToast('Set a weekend time greater than 0');return;}
+  const r=await supabase.rpc('tracker_update_task_schedule',{p_task_id:String(id),p_name:name,p_weekday_minutes:weekdayMinutes,p_weekend_minutes:weekendMinutes,p_repeat_days:repeatDays});
   if(r.error){showToast(`Could not save: ${r.error.message}`);return;}
-  const updated=allTasks.find(t=>String(t.id)===String(id));
-  if(updated){updated.name=name;updated.weekday=minutes;updated.holiday=minutes;saveCustomTaskSnapshot(updated);}
-  await loadTasks();
-  today=await getDay(today.date);
-  renderToday();renderTaskManager();renderSetupSummary();await refreshStats();
-  showToast("Task updated");
+  await loadTasks();const updated=tasks.find(t=>String(t.id)===String(id));if(updated)saveCustomTaskSnapshot(updated);today=await getDay(today.date);renderToday();renderTaskManager();renderSetupSummary();await refreshStats();showToast('Task updated');
 }
 function clearNewTaskFields(){
-  const form=$("#addTaskForm");
-  if(form) form.reset();
-  $("#newTaskName").value="";
-  $("#newTaskHours").value="";
-  $("#newTaskMinutes").value="";
+  const form=$("#addTaskForm"); if(form)form.reset(); $("#newTaskName").value='';$("#newTaskWeekday").value='';$("#newTaskWeekend").value='';
+  const chips=document.querySelectorAll('#newTaskRepeatPanel .repeat-chip');chips.forEach(ch=>ch.classList.toggle('active',[1,2,3,4,5].includes(Number(ch.dataset.day))));
+  const label=$("#newTaskRepeatSummary");if(label)label.textContent='Mon · Tue · Wed · Thu · Fri';
 }
-
+function getNewTaskRepeatDays(){return [...document.querySelectorAll('#newTaskRepeatPanel .repeat-chip.active')].map(x=>Number(x.dataset.day)).sort((a,b)=>a-b);}
 async function addManagedTask(e){
-  e?.preventDefault();
-  const name=$("#newTaskName").value.trim();
-  const h=Math.max(0,parseInt($("#newTaskHours").value,10)||0);
-  const m=Math.max(0,parseInt($("#newTaskMinutes").value,10)||0);
-  const minutes=h*60+Math.min(59,m);
-  if(!name){showToast("Enter a task name");return;}
-  if(minutes<=0){showToast("Set a time greater than 0 minutes");return;}
+  e?.preventDefault();const name=$("#newTaskName").value.trim(),weekdayMinutes=parseTimeInput($("#newTaskWeekday").value),weekendMinutes=parseTimeInput($("#newTaskWeekend").value),repeatDays=getNewTaskRepeatDays();
+  if(!name){showToast('Enter a task name');return;}if(!repeatDays.length){showToast('Choose at least one repeat day');return;}
+  if(weekdayMinutes<=0 && repeatDays.some(d=>d>=1&&d<=5)){showToast('Set a weekday time greater than 0');return;}if(weekendMinutes<=0 && repeatDays.some(d=>d===0||d===6)){showToast('Set a weekend time greater than 0');return;}
   const maxOrder=tasks.reduce((m,t)=>Math.max(m,Number(t.sort_order)||0),0);
-  const sort_order=maxOrder+1;
-  const r=await supabase.rpc("tracker_create_task",{p_name:name,p_minutes:minutes,p_sort_order:sort_order});
+  const r=await supabase.rpc('tracker_create_task',{p_name:name,p_weekday_minutes:weekdayMinutes,p_weekend_minutes:weekendMinutes,p_repeat_days:repeatDays,p_sort_order:maxOrder+1});
   if(r.error){showToast(`Could not add task: ${r.error.message}`);return;}
-  const created=r.data && !Array.isArray(r.data) ? r.data : null;
-  const createdId=created?.id ?? `${Date.now()}`;
-  saveCustomTaskSnapshot({id:normalizeTaskId(createdId),name,weekday:minutes,holiday:minutes,sort_order,custom:true});
   if(!localStorage.getItem(`tracker-custom-start-${user.id}`))localStorage.setItem(`tracker-custom-start-${user.id}`,dateKeyInIST());
-  clearNewTaskFields();
-  await loadTasks();
-  today=await getDay(today.date);
-  renderToday();renderTaskManager();renderSetupSummary();await refreshStats();
-  showToast("Task added");
+  clearNewTaskFields();await loadTasks();tasks.forEach(saveCustomTaskSnapshot);today=await getDay(today.date);renderToday();renderTaskManager();renderSetupSummary();await refreshStats();showToast('Task added');
 }
-async function deleteManagedTask(id){
-  const r=await supabase.rpc("tracker_delete_task",{p_task_id:String(id)});
-  if(r.error){showToast(`Could not remove task: ${r.error.message}`);return;}
-  await loadTasks();
-  today=await getDay(today.date);
-  renderToday();renderTaskManager();renderSetupSummary();await refreshStats();
-  showToast("Task removed");
-}
-async function moveManagedTask(id,delta){
-  const ordered=[...tasks].sort((a,b)=>a.sort_order-b.sort_order);
-  const idx=ordered.findIndex(x=>String(x.id)===String(id));
-  const target=idx+delta;
-  if(idx<0||target<0||target>=ordered.length)return;
-  const a=ordered[idx],b=ordered[target];
-  const r=await supabase.rpc("tracker_reorder_tasks",{p_task_id:String(a.id),p_other_task_id:String(b.id)});
-  if(r.error){showToast(`Could not reorder: ${r.error.message}`);return;}
-  await loadTasks();
-  for(const t of tasks)saveCustomTaskSnapshot(t);
-  renderTaskManager();renderToday();renderSetupSummary();showToast("Order updated");
-}
+async function deleteManagedTask(id){const r=await supabase.rpc('tracker_delete_task',{p_task_id:String(id)});if(r.error){showToast(`Could not remove task: ${r.error.message}`);return;}await loadTasks();today=await getDay(today.date);renderToday();renderTaskManager();renderSetupSummary();await refreshStats();showToast('Task removed');}
+async function moveManagedTask(id,delta){const ordered=[...tasks].sort((a,b)=>a.sort_order-b.sort_order),idx=ordered.findIndex(x=>String(x.id)===String(id)),target=idx+delta;if(idx<0||target<0||target>=ordered.length)return;const a=ordered[idx],b=ordered[target];const r=await supabase.rpc('tracker_reorder_tasks',{p_task_id:String(a.id),p_other_task_id:String(b.id)});if(r.error){showToast(`Could not reorder: ${r.error.message}`);return;}await loadTasks();tasks.forEach(saveCustomTaskSnapshot);renderTaskManager();renderToday();renderSetupSummary();showToast('Order updated');}
 
 function openMissionModal(){$("#missionStartDate").value=mission?.start_date||dateKeyInIST();$("#missionModal").classList.add("open");$("#missionModal").setAttribute("aria-hidden","false");}
 function closeMissionModal(){$("#missionModal").classList.remove("open");$("#missionModal").setAttribute("aria-hidden","true");}
@@ -306,6 +315,19 @@ function buildBalloons(count=13){
     box.appendChild(b);
   }
 }
+function buildSparkles(count=55){
+  const box=$("#celebrationSparkles");if(!box)return;box.innerHTML="";
+  const palette=["#fff4ae","#ffffff","#8ce7ff","#ffb4ef","#7be6bd","#ffd85f"];
+  for(let i=0;i<count;i++){const el=document.createElement("i");el.className="sparkle";el.style.setProperty("--sx",`${Math.random()*100}%`);el.style.setProperty("--sy",`${Math.random()*100}%`);el.style.setProperty("--ss",`${2+Math.random()*5}px`);el.style.setProperty("--sc",palette[Math.floor(Math.random()*palette.length)]);el.style.setProperty("--sd",`${1.2+Math.random()*2.4}s`);el.style.setProperty("--sdelay",`${Math.random()*1.8}s`);box.appendChild(el);}
+}
+function buildRays(count=14){
+  const box=$("#celebrationRays");if(!box)return;box.innerHTML="";
+  for(let i=0;i<count;i++){const el=document.createElement("i");el.className="ray";el.style.setProperty("--ra",`${i*(360/count)+Math.random()*8}deg`);el.style.setProperty("--rd",`${Math.random()*1.3}s`);box.appendChild(el);}
+}
+function buildBurstRings(count=4){
+  const box=$("#celebrationBursts");if(!box)return;box.innerHTML="";
+  for(let i=0;i<count;i++){const el=document.createElement("i");el.className="burst-ring";el.style.setProperty("--rb",`${i*.55}s`);box.appendChild(el);}
+}
 function openCelebration(kind,data){
   const overlay=$("#celebrationOverlay"); if(!overlay)return;
   const isWeekly=kind==="weekly", isFinal=kind==="final";
@@ -321,7 +343,7 @@ function openCelebration(kind,data){
   $("#celebrationBadges").innerHTML=isFinal?'<span class="celebration-badge">🏆 100-DAY FINISHER</span><span class="celebration-badge">🔥 CONSISTENCY</span><span class="celebration-badge">💎 DISCIPLINE</span>':isWeekly?'<span class="celebration-badge">🎈 7 DAYS STRONG</span><span class="celebration-badge">🎊 WEEK COMPLETE</span><span class="celebration-badge">🔥 KEEP GOING</span>':'<span class="celebration-badge">✅ 100% DONE</span><span class="celebration-badge">🔥 MOMENTUM</span>';
   $("#celebrationContinueBtn").textContent=isFinal?"FINISH →":isWeekly?"START NEXT WEEK →":"CONTINUE →";
   $("#celebrationNext").textContent=isFinal?"THIS MISSION BELONGS TO YOU":isWeekly?`DAY ${Math.min(data.dayNo+1,100)} STARTS THE NEXT CHAPTER`:`DAY ${Math.min(data.dayNo+1,100)} IS NEXT`;
-  buildConfetti(isWeekly?150:isFinal?180:105); buildFireworks(isWeekly?9:isFinal?12:6); buildBalloons(isWeekly?20:0);
+  buildConfetti(isWeekly?190:isFinal?220:130); buildFireworks(isWeekly?12:isFinal?16:8); buildBalloons(isWeekly?24:0); buildSparkles(isWeekly?95:isFinal?110:65); buildRays(isWeekly?20:isFinal?22:15); buildBurstRings(isWeekly?7:isFinal?9:4);
   if(isWeekly){
     const cake=document.createElement("div");cake.className="party-cake";cake.textContent="🎂";$("#celebrationBalloons").appendChild(cake);
   }
@@ -334,7 +356,7 @@ function openCelebration(kind,data){
 function closeCelebration(){
   const overlay=$("#celebrationOverlay"); if(!overlay?.classList.contains("open"))return;
   overlay.classList.add("closing");
-  setTimeout(()=>{overlay.classList.remove("open","closing","weekly","final");overlay.setAttribute("aria-hidden","true");document.body.classList.remove("celebration-lock");$("#celebrationConfetti").innerHTML="";$("#celebrationFireworks").innerHTML="";$("#celebrationBalloons").innerHTML="";},330);
+  setTimeout(()=>{overlay.classList.remove("open","closing","weekly","final");overlay.setAttribute("aria-hidden","true");document.body.classList.remove("celebration-lock");$("#celebrationConfetti").innerHTML="";$("#celebrationFireworks").innerHTML="";$("#celebrationBalloons").innerHTML="";$("#celebrationSparkles").innerHTML="";$("#celebrationRays").innerHTML="";$("#celebrationBursts").innerHTML="";},330);
 }
 function isPerfectRow(row){return !!row && row.totalTasks>0 && row.percent===100;}
 function weekNumberForDay(dayNo){return Math.floor((dayNo-1)/7)+1;}
@@ -437,7 +459,7 @@ document.querySelectorAll("[data-close-modal]").forEach(e=>e.addEventListener("c
 async function exportBackup(){
   const [dt,nt,ct]=await Promise.all([supabase.from("daily_tasks").select("task_date,task_id,completed,updated_at").eq("user_id",user.id),supabase.from("daily_notes").select("task_date,notes,updated_at").eq("user_id",user.id),supabase.from("completed_days").select("task_date,completed,updated_at").eq("user_id",user.id)]);
   const backup={version:2,exportedAt:new Date().toISOString(),mission:{start_date:mission.start_date},daily_tasks:dt.data||[],daily_notes:nt.data||[],completed_days:ct.data||[]};
-  const blob=new Blob([JSON.stringify(backup,null,2)],{type:"application/json"}),a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=`study-tracker-backup-${today.date}.json`;a.click();URL.revokeObjectURL(a.href);
+  const blob=new Blob([JSON.stringify(backup,null,2)],{type:"application/json"}),a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=`study-tracker-backup-${selectedDate||today.date}.json`;a.click();URL.revokeObjectURL(a.href);
 }
 $("#exportBtn").addEventListener("click",async()=>{try{await exportBackup();showToast("Backup exported");}catch(e){alert(e.message);}});
 
@@ -469,6 +491,9 @@ async function deleteProject(id){const p=projects.find(x=>String(x.id)===String(
 
 $("#manageChecklistBtn").addEventListener("click",openChecklistModal);
 window.addEventListener("pageshow",()=>clearNewTaskFields());
+$("#newTaskRepeatToggle").addEventListener("click",()=>{const panel=$("#newTaskRepeatPanel");panel.hidden=!panel.hidden;});
+document.querySelectorAll("#newTaskRepeatPanel .repeat-chip").forEach(btn=>btn.addEventListener("click",()=>{btn.classList.toggle("active");$("#newTaskRepeatSummary").textContent=repeatLabel(getNewTaskRepeatDays());}));
+document.querySelectorAll("#newTaskRepeatPanel .repeat-preset").forEach(btn=>btn.addEventListener("click",()=>{const p=btn.dataset.preset;const selected=p==='weekdays'?[1,2,3,4,5]:p==='weekends'?[0,6]:p==='all'?[0,1,2,3,4,5,6]:[];document.querySelectorAll("#newTaskRepeatPanel .repeat-chip").forEach(ch=>ch.classList.toggle('active',selected.includes(Number(ch.dataset.day))));$("#newTaskRepeatSummary").textContent=repeatLabel(selected);}));
 $("#addTaskForm").addEventListener("submit",addManagedTask);
 $("#closeChecklistBtn").addEventListener("click",closeChecklistModal);
 document.querySelectorAll("[data-close-checklist-modal]").forEach(e=>e.addEventListener("click",closeChecklistModal));
@@ -548,14 +573,14 @@ $("#signUpBtn").addEventListener("click",async()=>{
 $("#signOutBtn").addEventListener("click",()=>supabase.auth.signOut());
 
 async function startApp(s){
-  session=s;user=s.user;$("#authScreen").classList.add("hidden");$("#appShell").classList.remove("hidden");
-  try{await ensureMission();await loadTasks();try{await loadProjects();}catch(projectErr){console.error("Projects unavailable",projectErr);projects=[];renderProjects();}today=await getDay(dateKeyInIST());loadBoosters();renderToday();renderSetupSummary();await refreshStats();}
+  session=s;user=s.user;selectedDate=dateKeyInIST();$("#authScreen").classList.add("hidden");$("#appShell").classList.remove("hidden");
+  try{await ensureMission();await loadTasks();try{await loadProjects();}catch(projectErr){console.error("Projects unavailable",projectErr);projects=[];renderProjects();}today=await getDay(selectedDate);loadBoosters();renderToday();renderSetupSummary();await refreshStats();}
   catch(e){console.error(e);alert("Could not load your tracker. "+e.message);}
 }
-function stopApp(){session=null;user=null;mission=null;tasks=[];allTasks=[];customTaskIds=[];projects=[];editingProjectId=null;today=null;history=[];$("#appShell").classList.add("hidden");$("#authScreen").classList.remove("hidden");}
+function stopApp(){session=null;user=null;mission=null;tasks=[];allTasks=[];customTaskIds=[];projects=[];editingProjectId=null;today=null;selectedDate=null;history=[];$("#appShell").classList.add("hidden");$("#authScreen").classList.remove("hidden");}
 
 supabase.auth.onAuthStateChange(async(_event,s)=>{if(s)await startApp(s);else stopApp();});
 (async()=>{const r=await supabase.auth.getSession();if(r.data.session)await startApp(r.data.session);})();
-setInterval(async()=>{if(!user||!today)return;const freshDate=dateKeyInIST();if(freshDate!==today.date){today=await getDay(freshDate);loadBoosters();renderToday();await refreshStats();}},30000);
+setInterval(async()=>{if(!user||!today)return;const freshDate=dateKeyInIST();if(freshDate!==today.date&&today.date===selectedDate){selectedDate=freshDate;today=await getDay(freshDate);loadBoosters();renderToday();await refreshStats();}},30000);
 
 })();

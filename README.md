@@ -1,40 +1,34 @@
-# MY_TASKS — checklist + projects update
+# MY_TASKS v13
 
-This deployment keeps the existing tracker layout, Daily Work chart, 100-day history, notes, productivity boosters, Projects section, and Mission start-date setting.
+This version keeps the existing dashboard, Projects, Mission start date, Daily Work chart, history, notes, backup/import and Supabase authentication while adding schedule flexibility and work-ahead mode.
 
-## Daily Checklist
-- Starts empty for each user.
-- Add your own task name and daily time.
-- Edit task name/time.
-- Remove tasks without deleting existing completion history.
-- Reorder tasks.
-- No browser `prompt()` dialogs.
-- Checklist completion continues to feed the existing Daily Work/history system.
+## Checklist scheduling
+Each custom task can now have its own repeat schedule:
+- Mon, Tue, Wed, Thu, Fri, Sat, Sun can be selected individually.
+- Weekday time and weekend time can be different.
+- Quick presets: Mon–Fri, Sat–Sun, Every day, Never.
+- The repeat control is compact and stays out of the main dashboard.
 
-## Mission
-Use **⚙ Mission** to choose the start date. Day 1 begins on that date; the tracker runs for 100 days.
+The dashboard automatically shows **Normal Working-Day Plan** on weekdays and **Weekend Plan** on Saturday/Sunday according to each task's repeat schedule.
 
-## Projects
-Projects stay separate from the checklist and are private to the signed-in user.
+## Work ahead
+After the selected day is completed at 100%, **Work ahead** becomes available. A small date picker also lets you choose another day inside the 100-day mission. Future mission days can be worked on and saved without changing the actual calendar date.
 
-## Supabase setup
-Run `tasks_permissions_and_custom.sql` once in the Supabase SQL Editor. This adds the user-owned checklist fields and creates secure RPC functions for task reads/writes. The frontend uses those RPC functions so checklist writes do not depend on conflicting old `tasks` RLS policies.
+## Celebrations
+- Daily 100% completion: full-screen confetti, fireworks, sparkles, light rays and burst effects.
+- Every 7 completed mission days: larger party/birthday-style celebration with balloons, cake, extra confetti and fireworks.
+- Day 100: final mission celebration.
+- Each celebration is stored locally and only plays once for its milestone/day on that device.
 
-Then upload only these four frontend files to GitHub Pages:
+## Supabase
+Run `tasks_permissions_and_custom_v13.sql` once in the Supabase SQL Editor before deploying this version. It adds repeat-schedule fields and the secure task RPCs used by the checklist manager.
 
-```text
-index.html
-app.js
-styles.css
-README.md
-```
+## Deployment
+GitHub Pages needs only these four files:
 
-Do not upload the SQL file to GitHub Pages; it is only for the Supabase SQL Editor.
+- `index.html`
+- `app.js`
+- `styles.css`
+- `README.md`
 
-### Celebration milestones
-- Completing the final task of a day at 100% triggers one full-screen daily celebration.
-- Every completed 7-day block gets a separate birthday/party-style celebration.
-- Day 100 has a final mission celebration.
-- Each milestone is stored in browser local storage so refreshes do not replay the celebration on that device.
-- Celebration effects are CSS/JavaScript only; no database changes are required for this feature.
-
+The SQL file is separate and is not part of the four-file GitHub deployment package.

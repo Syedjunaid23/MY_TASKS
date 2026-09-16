@@ -48,7 +48,7 @@
         </div>
         <div class="card today-card">
           <div class="card-head"><div><span class="label">TODAY</span><h2 id="planTitle">Loading…</h2></div><span id="planBadge" class="badge">—</span></div>
-          <div class="today-progress"><div class="ring"><span id="todayPercent">0%</span></div><div><b id="todayTasks">0 / 0 tasks</b><p id="todayMinutes" class="muted">0 / 0 minutes</p><button id="completeDayBtn" class="primary">Mark day complete</button></div></div>
+          <div class="today-progress"><div class="ring"><span id="todayPercent">0%</span></div><div><b id="todayTasks">0 / 0 tasks</b><p id="todayMinutes" class="muted">0 / 0 minutes</p><button id="completeDayBtn" class="primary">Mark day complete</button><div id="dayNav" class="day-nav" hidden></div></div></div>
         </div>
       </section>
 
@@ -84,14 +84,20 @@
       <button class="modal-close" data-close-checklist-modal aria-label="Close">×</button>
       <div class="modal-kicker">YOUR DAILY CHECKLIST</div>
       <h2 id="checklistModalTitle">Edit checklist</h2>
-      <p class="muted project-private-note">Nothing is predefined in your active checklist. Add your own task name and daily time.</p>
+      <p class="muted project-private-note">Build your own schedule. Each task can repeat on the days you choose, with separate weekday and weekend times.</p>
       <div id="taskManagerList" class="task-manager-list"></div>
       <form id="addTaskForm" class="task-add-form" autocomplete="off">
-        <div class="task-add-form-grid">
-          <label>Task name<input id="newTaskName" name="task_label_8391" type="text" maxlength="100" placeholder="Enter task name" autocomplete="off" required></label>
-          <label>Hours<input id="newTaskHours" name="task_hours_8391" type="number" min="0" max="9999" value="" inputmode="numeric" autocomplete="off"></label>
-          <label>Minutes<input id="newTaskMinutes" name="task_minutes_8391" type="number" min="0" max="59" value="" inputmode="numeric" autocomplete="off"></label>
+        <div class="task-add-form-grid task-add-form-grid-v2">
+          <label>Task name<input id="newTaskName" name="custom_task_label" type="text" maxlength="100" placeholder="Enter task name" autocomplete="off" required></label>
+          <label>Weekday time<input id="newTaskWeekday" name="custom_task_weekday" type="text" inputmode="numeric" placeholder="1h 30m" autocomplete="off"><small>Mon–Fri</small></label>
+          <label>Weekend time<input id="newTaskWeekend" name="custom_task_weekend" type="text" inputmode="numeric" placeholder="2h" autocomplete="off"><small>Sat–Sun</small></label>
           <div class="task-add-form-actions"><button class="primary" type="submit">＋ Add task</button></div>
+        </div>
+        <div class="new-task-repeat"><span>Repeat</span><button id="newTaskRepeatToggle" class="secondary small-btn" type="button">↻ <span id="newTaskRepeatSummary">Mon · Tue · Wed · Thu · Fri</span></button></div>
+        <div id="newTaskRepeatPanel" class="task-repeat-panel" hidden>
+          <div class="repeat-title">Choose the days this task appears</div>
+          <div class="repeat-chips">${['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map((name,d)=>`<button type="button" class="repeat-chip ${d>=1&&d<=5?'active':''}" data-day="${d}">${name}</button>`).join('')}</div>
+          <div class="repeat-quick"><button type="button" class="secondary repeat-preset" data-preset="weekdays">Mon–Fri</button><button type="button" class="secondary repeat-preset" data-preset="weekends">Sat–Sun</button><button type="button" class="secondary repeat-preset" data-preset="all">Every day</button><button type="button" class="secondary repeat-preset" data-preset="none">Never</button></div>
         </div>
       </form>
       <div class="task-manager-actions"><span class="muted small">Changes are saved to the tracker.</span><button id="closeChecklistBtn" class="primary" type="button">Done</button></div>
@@ -133,7 +139,10 @@
 
   <div id="celebrationOverlay" class="celebration-overlay" aria-hidden="true">
     <div class="celebration-glow"></div>
+    <div id="celebrationRays" class="celebration-rays" aria-hidden="true"></div>
+    <div id="celebrationBursts" class="celebration-bursts" aria-hidden="true"></div>
     <div id="celebrationFireworks" class="celebration-fireworks" aria-hidden="true"></div>
+    <div id="celebrationSparkles" class="celebration-sparkles" aria-hidden="true"></div>
     <div id="celebrationConfetti" class="celebration-confetti" aria-hidden="true"></div>
     <div id="celebrationBalloons" class="celebration-balloons" aria-hidden="true"></div>
     <section class="celebration-card" role="dialog" aria-modal="true" aria-labelledby="celebrationTitle">
@@ -153,6 +162,6 @@
   <footer>Cloud-synced tracker · GitHub Pages ready · Supabase database · automatic daily rollover · exportable backups</footer>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="app.js?v=11"></script>
+  <script src="app.js?v=13"></script>
 </body>
 </html>
