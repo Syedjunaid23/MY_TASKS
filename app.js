@@ -123,7 +123,7 @@ async function getHistory(){
   for(let i=0;i<100;i++){
     const date=addDays(start,i); if(date>end) break;
     const useCustom=!!transition && date>=transition;
-    const source=useCustom?customHistoryTasks:allTasks.filter(t=>!t.custom);
+    const source=useCustom?customHistoryTasks.filter(t=>!t.createdDate || date>=t.createdDate):allTasks.filter(t=>!t.custom);
     const holiday=isHoliday(date);
     const dayTasks=source.filter(t=>isTaskScheduled(t,date)).map(t=>({id:t.id,name:t.name,minutes:taskMinutesForDate(t,date),completed:!!taskMap[date]?.[t.id]}));
     const totalTasks=dayTasks.length, completedTasks=dayTasks.filter(t=>t.completed).length;
@@ -137,22 +137,35 @@ function renderDayNavigator({dayNo,workingAhead,beforeMission,afterMission,realT
   const box=$("#dayNav"); if(!box)return;
   if(beforeMission||afterMission){box.innerHTML="";box.hidden=true;return;}
   const canPrev=dayNo>1, canNext=dayNo<100;
-  const canAdvance=Number(today?.percent||0)===100 || !!today?.completed;
+  const canAdvance=Number(today?.percent||0)>=100;
   box.hidden=false;
-  const back=workingAhead?'<button id="backToTodayBtn" class="day-nav-link secondary" type="button">← Today</button>':"";
-  const workAhead=(!workingAhead && canAdvance && canNext)?'<button id="workAheadBtn" class="day-nav-link primary" type="button">Work ahead →</button>':"";
-  const next=workingAhead&&canNext?'<button id="nextDayBtn" class="day-nav-link primary" type="button">Next day →</button>':"";
-  const prev=workingAhead&&canPrev?'<button id="prevDayBtn" class="day-nav-link secondary" type="button">← Previous</button>':"";
-  const label=workingAhead ? `Working ahead · Day ${dayNo}` : (canAdvance ? "Today complete · next day unlocked" : "Finish today's tasks to unlock Work ahead");
-  box.innerHTML=`<div class="day-nav-left"><span class="day-nav-dot"></span><span>${label}</span></div><div class="day-nav-actions">${back}${prev}${next}${workAhead}</div>`;
+
+  if(!workingAhead){
+    if(canAdvance && canNext){
+      box.innerHTML=`<div class="day-nav-status"><span class="day-nav-dot"></span><span>Next day unlocked</span></div><button id="workAheadBtn" class="day-nav-link primary" type="button">Open Day ${dayNo+1} →</button>`;
+    }else{
+      box.innerHTML=`<div class="day-nav-status"><span class="day-nav-dot"></span><span>${canNext?"Finish today to unlock the next day":"Mission complete"}</span></div>`;
+    }
+  }else{
+    box.innerHTML=`<div class="day-nav-status"><span class="day-nav-dot"></span><span>Working ahead · Day ${dayNo}</span></div><div class="day-nav-actions">
+      <button id="backToTodayBtn" class="day-nav-link secondary" type="button">Today</button>
+      ${canPrev?'<button id="prevDayBtn" class="day-nav-link secondary" type="button">←</button>':""}
+      ${canNext?'<button id="nextDayBtn" class="day-nav-link primary" type="button">Next →</button>':""}
+    </div>`;
+  }
   $("#backToTodayBtn")?.addEventListener("click",()=>selectMissionDate(realToday));
   $("#workAheadBtn")?.addEventListener("click",()=>selectMissionDate(addDays(today.date,1)));
   $("#nextDayBtn")?.addEventListener("click",()=>selectMissionDate(addDays(today.date,1)));
   $("#prevDayBtn")?.addEventListener("click",()=>selectMissionDate(addDays(today.date,-1)));
 }
 async function selectMissionDate(date){
-  const n=missionDayNumber(date); if(n<1||n>100){showToast("Choose a date inside the 100-day mission");return;}
-  selectedDate=date; today=await getDay(date); loadBoosters(); renderToday(); await refreshStats();
+  const n=missionDayNumber(date);
+  if(n<1||n>100){showToast("Choose a date inside the 100-day mission");return;}
+  selectedDate=date;
+  today=await getDay(date);
+  loadBoosters();
+  renderToday();
+  await refreshStats();
 }
 function renderToday(){
   const dayNo=missionDayNumber(today.date);
@@ -166,9 +179,10 @@ function renderToday(){
   $("#todayTasks").textContent=`${today.completedTasks} / ${today.totalTasks} tasks`;
   $("#todayMinutes").textContent=`${fmtMinutes(today.completedMinutes)} / ${fmtMinutes(today.totalMinutes)}`;
   $("#notes").value=today.notes||"";
-  $("#completeDayBtn").textContent=(today.percent===100)?"✓ Day complete":"Mark day complete"; $("#completeDayBtn").disabled=today.percent===100;
+  $("#completeDayBtn").textContent=(today.completed||today.percent===100)?"✓ Day completed":"Complete day";
+  $("#completeDayBtn").disabled=!!today.completed;
   renderDayNavigator({dayNo,workingAhead,beforeMission,afterMission,realToday});
-  $("#checklistTitle").textContent=beforeMission?"Not started":afterMission?"Mission complete":`Day ${dayNo} of 100${workingAhead?" · Working ahead":""}`;
+  $("#checklistTitle").textContent=beforeMission?"Not started":afterMission?"Mission complete":workingAhead?`Day ${dayNo} of 100 · Ahead`:`Day ${dayNo} of 100`;
   const list=$("#taskList"); list.innerHTML="";
   if(beforeMission){list.innerHTML=`<div class="projects-empty"><b>Your mission hasn't started yet.</b><span>Choose any start date from the ⚙ Mission button.</span></div>`;renderSetupSummary();return;}
   if(afterMission){list.innerHTML=`<div class="projects-empty"><b>Your 100-day mission is complete.</b><span>Choose a new start date from the ⚙ Mission button to begin another run.</span></div>`;renderSetupSummary();return;}
@@ -221,34 +235,32 @@ function renderCustomDayChips(container, days, cls="v14-day-chip"){
 function renderTaskManager(){
   const box=$("#taskManagerList"); if(!box)return;
   if(!tasks.length){
-    box.innerHTML='<div class="manager-empty"><b>Your checklist is empty</b><span>Add a task below. Nothing is preloaded.</span></div>';
+    box.innerHTML='<div class="manager-empty"><b>No tasks yet</b><span>Add your first task above. Tasks repeat Mon–Fri by default.</span></div>';
+    const label=$("#taskCountLabel"); if(label) label.textContent="0 tasks";
     return;
   }
   box.innerHTML=tasks.map((t,i)=>{
     const days=Array.isArray(t.repeatDays)?t.repeatDays:[1,2,3,4,5];
+    const hasWeekend=days.includes(0)||days.includes(6);
     return `<div class="task-manager-row" data-task-id="${escapeHtml(t.id)}">
-      <div class="task-manager-top">
-        <div class="task-title-wrap">
-          <input class="task-manager-name" value="${escapeHtml(t.name)}" maxlength="100" aria-label="Task name" autocomplete="off">
-          <span class="task-schedule-inline">${escapeHtml(scheduleSummary(days))}</span>
-        </div>
-        <button class="secondary task-delete" type="button">Remove</button>
+      <div class="task-manager-mainline">
+        <input class="task-manager-name" value="${escapeHtml(t.name)}" maxlength="100" aria-label="Task name" autocomplete="off">
+        <input class="task-weekday-time compact-time" type="text" inputmode="numeric" value="${formatTimeInput(t.weekday)}" placeholder="1h" aria-label="Task time" autocomplete="off">
+        <button class="secondary schedule-pill task-schedule-toggle" type="button" aria-expanded="false">↻ <span>${escapeHtml(scheduleSummary(days))}</span></button>
+        <button class="secondary task-delete" type="button" aria-label="Remove task">Remove</button>
       </div>
-      <div class="task-time-grid">
-        <label>Weekday time<input class="task-weekday-time" type="text" inputmode="numeric" value="${formatTimeInput(t.weekday)}" placeholder="1h 30m" autocomplete="off"><small>Mon–Fri</small></label>
-        <label>Weekend time<input class="task-weekend-time" type="text" inputmode="numeric" value="${formatTimeInput(t.weekendMinutes)}" placeholder="Same as weekday" autocomplete="off"><small>Sat–Sun</small></label>
-      </div>
-      <div class="task-manager-controls">
-        <button class="schedule-pill task-schedule-toggle" type="button" aria-expanded="false">↻ <span>${escapeHtml(scheduleSummary(days))}</span> <em>schedule</em></button>
+      <div class="task-manager-subline">
+        <span class="task-mini-status">${hasWeekend?"Weekend enabled":"Weekdays"}</span>
+        <label class="weekend-time-field" ${hasWeekend?"":"hidden"}>Weekend <input class="task-weekend-time" type="text" inputmode="numeric" value="${formatTimeInput(t.weekendMinutes)}" placeholder="1h" aria-label="Weekend time" autocomplete="off"></label>
         <div class="task-manager-row-actions">
-          <button class="secondary task-up" type="button" ${i===0?'disabled':''}>↑</button>
-          <button class="secondary task-down" type="button" ${i===tasks.length-1?'disabled':''}>↓</button>
+          <button class="secondary task-up" type="button" ${i===0?'disabled':''} aria-label="Move up">↑</button>
+          <button class="secondary task-down" type="button" ${i===tasks.length-1?'disabled':''} aria-label="Move down">↓</button>
           <button class="primary task-save" type="button">Save</button>
         </div>
       </div>
       <div class="schedule-popover task-schedule-panel" hidden>
-        <div class="schedule-popover-title">When should this task appear?</div>
-        <div class="schedule-preset-grid">
+        <div class="schedule-popover-title">Repeat this task</div>
+        <div class="schedule-preset-grid compact">
           <button type="button" class="schedule-preset" data-schedule-preset="weekdays">Mon–Fri</button>
           <button type="button" class="schedule-preset" data-schedule-preset="weekends">Sat–Sun</button>
           <button type="button" class="schedule-preset" data-schedule-preset="every">Every day</button>
@@ -258,6 +270,8 @@ function renderTaskManager(){
       </div>
     </div>`;
   }).join("");
+
+  const label=$("#taskCountLabel"); if(label) label.textContent=`${tasks.length} task${tasks.length===1?"":"s"}`;
 
   box.querySelectorAll(".task-save").forEach(b=>b.addEventListener("click",()=>saveManagedTask(b.closest(".task-manager-row"))));
   box.querySelectorAll(".task-delete").forEach(b=>b.addEventListener("click",()=>deleteManagedTask(b.closest(".task-manager-row").dataset.taskId)));
@@ -271,7 +285,6 @@ function renderTaskManager(){
     const selected=Array.isArray(task?.repeatDays)?task.repeatDays:[1,2,3,4,5];
     panel.dataset.selectedDays=selected.slice().sort((a,b)=>a-b).join(",");
     renderCustomDayChips(panel.querySelector(".custom-days"),selected);
-
     const key=Object.entries(SCHEDULE_PRESETS).find(([_,v])=>v.join(",")===selected.slice().sort((a,b)=>a-b).join(","))?.[0] || "custom";
     panel.querySelectorAll(".schedule-preset").forEach(btn=>btn.classList.toggle("active",btn.dataset.schedulePreset===key));
     panel.querySelector(".custom-days").hidden=key!=="custom";
@@ -283,21 +296,26 @@ function renderTaskManager(){
       panel.hidden=!opening;
       row.querySelector(".task-schedule-toggle").setAttribute("aria-expanded",String(opening));
     });
-
+    const syncWeekendField=()=>{
+      const days=(panel.dataset.selectedDays||"").split(",").filter(Boolean).map(Number);
+      const field=row.querySelector(".weekend-time-field");
+      if(field) field.hidden=!(days.includes(0)||days.includes(6));
+    };
+    syncWeekendField();
     panel.querySelectorAll(".schedule-preset").forEach(btn=>btn.addEventListener("click",()=>{
       const p=btn.dataset.schedulePreset;
-      if(p==="custom"){
-        panel.querySelector(".custom-days").hidden=false;
-      }else{
+      if(p!=="custom"){
         const chosen=SCHEDULE_PRESETS[p].slice();
         panel.dataset.selectedDays=chosen.join(",");
         renderCustomDayChips(panel.querySelector(".custom-days"),chosen);
         panel.querySelector(".custom-days").hidden=true;
         summary.textContent=scheduleSummary(chosen);
+      }else{
+        panel.querySelector(".custom-days").hidden=false;
       }
       panel.querySelectorAll(".schedule-preset").forEach(x=>x.classList.toggle("active",x===btn));
+      syncWeekendField();
     }));
-
     panel.querySelector(".custom-days").addEventListener("click",e=>{
       const chip=e.target.closest(".v14-day-chip"); if(!chip)return;
       chip.classList.toggle("active");
@@ -305,6 +323,7 @@ function renderTaskManager(){
       panel.dataset.selectedDays=chosen.join(",");
       summary.textContent=scheduleSummary(chosen);
       panel.querySelectorAll(".schedule-preset").forEach(x=>x.classList.toggle("active",x.dataset.schedulePreset==="custom"));
+      syncWeekendField();
     });
   });
 }
@@ -330,7 +349,9 @@ function formatTimeInput(m){
 function saveCustomTaskSnapshot(task){
   const key=`tracker-custom-task-snapshot-${user.id}`;
   const rows=JSON.parse(localStorage.getItem(key)||"{}");
-  rows[String(task.id)]={id:task.id,name:task.name,weekday:Number(task.weekday)||0,holiday:Number(task.holiday)||0,weekendMinutes:Number(task.weekendMinutes??task.holiday??task.weekday)||0,repeatDays:Array.isArray(task.repeatDays)?task.repeatDays.slice():[0,1,2,3,4,5,6],sort_order:Number(task.sort_order)||0,custom:true};
+  const keyId=String(task.id);
+  const previous=rows[keyId];
+  rows[keyId]={id:task.id,name:task.name,weekday:Number(task.weekday)||0,holiday:Number(task.holiday)||0,weekendMinutes:Number(task.weekendMinutes??task.holiday??task.weekday)||0,repeatDays:Array.isArray(task.repeatDays)?task.repeatDays.slice():[0,1,2,3,4,5,6],sort_order:Number(task.sort_order)||0,createdDate:previous?.createdDate||dateKeyInIST(),custom:true};
   localStorage.setItem(key,JSON.stringify(rows));
 }
 function loadCustomTaskSnapshot(){try{return JSON.parse(localStorage.getItem(`tracker-custom-task-snapshot-${user.id}`)||"{}")}catch{return {}}}
@@ -338,16 +359,18 @@ async function saveManagedTask(row){
   const id=row.dataset.taskId;
   const name=row.querySelector(".task-manager-name").value.trim();
   const weekdayMinutes=parseTimeInput(row.querySelector(".task-weekday-time").value);
-  const rawWeekend=row.querySelector(".task-weekend-time").value.trim();
-  const weekendMinutes=rawWeekend?parseTimeInput(rawWeekend):weekdayMinutes;
   const repeatDays=getSelectedRepeatDays(row);
+  const weekendInput=row.querySelector(".task-weekend-time");
+  const weekendMinutes=weekendInput?parseTimeInput(weekendInput.value):weekdayMinutes;
 
   if(!name){showToast("Enter a task name");return;}
   if(!repeatDays.length){showToast("Choose at least one day");return;}
-  if(weekdayMinutes<=0 && repeatDays.some(d=>d>=1&&d<=5)){showToast("Add a weekday time");return;}
-  if(weekendMinutes<=0 && repeatDays.some(d=>d===0||d===6)){showToast("Add a weekend time");return;}
+  const needsWeekday=repeatDays.some(d=>d>=1&&d<=5);
+  const needsWeekend=repeatDays.some(d=>d===0||d===6);
+  if(needsWeekday && weekdayMinutes<=0){showToast("Add a task time");return;}
+  if(needsWeekend && weekendMinutes<=0){showToast("Add a weekend time");return;}
 
-  const r=await supabase.rpc("tracker_update_task_schedule",{p_task_id:String(id),p_name:name,p_weekday_minutes:weekdayMinutes,p_weekend_minutes:weekendMinutes,p_repeat_days:repeatDays});
+  const r=await supabase.rpc("tracker_update_task_schedule",{p_task_id:String(id),p_name:name,p_weekday_minutes:weekdayMinutes,p_weekend_minutes:needsWeekend?weekendMinutes:weekdayMinutes,p_repeat_days:repeatDays});
   if(r.error){showToast(`Could not save: ${r.error.message}`);return;}
   await loadTasks();
   const updated=tasks.find(t=>String(t.id)===String(id));
@@ -358,7 +381,8 @@ async function saveManagedTask(row){
 }
 function clearNewTaskFields(){
   const form=$("#addTaskForm"); if(form)form.reset();
-  $("#newTaskName").value="";$("#newTaskWeekday").value="";$("#newTaskWeekend").value="";
+  $("#newTaskName").value="";
+  $("#newTaskTime").value="";
   const panel=$("#newTaskSchedulePanel");
   if(panel){
     panel.hidden=true;
@@ -376,25 +400,23 @@ function getNewTaskRepeatDays(){
 async function addManagedTask(e){
   e?.preventDefault();
   const name=$("#newTaskName").value.trim();
-  const weekdayMinutes=parseTimeInput($("#newTaskWeekday").value);
-  const rawWeekend=$("#newTaskWeekend").value.trim();
+  const minutes=parseTimeInput($("#newTaskTime").value);
   const repeatDays=getNewTaskRepeatDays();
-  const weekendMinutes=rawWeekend?parseTimeInput(rawWeekend):weekdayMinutes;
-
-  if(!name){showToast("Enter a task name");$("#newTaskName")?.focus();return;}
+  if(!name){showToast("Give the task a name");$("#newTaskName")?.focus();return;}
+  if(minutes<=0){showToast("Add the time for this task");$("#newTaskTime")?.focus();return;}
   if(!repeatDays.length){showToast("Choose at least one day");return;}
-  if(weekdayMinutes<=0 && repeatDays.some(d=>d>=1&&d<=5)){showToast("Add a weekday time");return;}
-  if(weekendMinutes<=0 && repeatDays.some(d=>d===0||d===6)){showToast("Add a weekend time");return;}
-
   const maxOrder=tasks.reduce((m,t)=>Math.max(m,Number(t.sort_order)||0),0);
-  const r=await supabase.rpc("tracker_create_task",{p_name:name,p_weekday_minutes:weekdayMinutes,p_weekend_minutes:weekendMinutes,p_repeat_days:repeatDays,p_sort_order:maxOrder+1});
+  const r=await supabase.rpc("tracker_create_task",{p_name:name,p_weekday_minutes:minutes,p_weekend_minutes:minutes,p_repeat_days:repeatDays,p_sort_order:maxOrder+1});
   if(r.error){showToast(`Could not add task: ${r.error.message}`);return;}
-  if(!localStorage.getItem(`tracker-custom-start-${user.id}`))localStorage.setItem(`tracker-custom-start-${user.id}`,dateKeyInIST());
-  clearNewTaskFields();
-  await loadTasks();tasks.forEach(saveCustomTaskSnapshot);
+  const createdId=r.data?.id || r.data?.[0]?.id || null;
+  if(!localStorage.getItem(`tracker-custom-start-${user.id}`)) localStorage.setItem(`tracker-custom-start-${user.id}`,dateKeyInIST());
+  await loadTasks();
+  tasks.forEach(saveCustomTaskSnapshot);
   today=await getDay(today.date);
+  clearNewTaskFields();
   renderToday();renderTaskManager();renderSetupSummary();await refreshStats();
-  showToast("Task added");
+  const found=createdId==null || tasks.some(t=>String(t.id)===String(createdId));
+  showToast(found?"Task added":"Task added — refresh to sync");
 }
 async function deleteManagedTask(id){
   const r=await supabase.rpc("tracker_delete_task",{p_task_id:String(id)});
@@ -413,7 +435,21 @@ async function moveManagedTask(id,delta){
 
 function openMissionModal(){$("#missionStartDate").value=mission?.start_date||dateKeyInIST();$("#missionModal").classList.add("open");$("#missionModal").setAttribute("aria-hidden","false");}
 function closeMissionModal(){$("#missionModal").classList.remove("open");$("#missionModal").setAttribute("aria-hidden","true");}
-async function saveMissionStart(e){e.preventDefault();const start=$("#missionStartDate").value;if(!start)return;const r=await supabase.from("missions").update({start_date:start}).eq("id",mission.id).eq("user_id",user.id);if(r.error){showToast(`Could not change mission start: ${r.error.message}`);return;}mission={...mission,start_date:start};closeMissionModal();today=await getDay(dateKeyInIST());renderToday();renderSetupSummary();await refreshStats();showToast("Mission start updated");}
+async function saveMissionStart(e){
+  e.preventDefault();
+  const start=$("#missionStartDate").value;
+  if(!start)return;
+  const r=await supabase.from("missions").update({start_date:start}).eq("id",mission.id).eq("user_id",user.id);
+  if(r.error){showToast(`Could not change mission start: ${r.error.message}`);return;}
+  mission={...mission,start_date:start};
+  selectedDate=dateKeyInIST();
+  today=await getDay(selectedDate);
+  closeMissionModal();
+  renderToday();
+  renderSetupSummary();
+  await refreshStats();
+  showToast("Mission start updated");
+}
 
 function celebrationKey(kind, date=today?.date){
   const missionStart=mission?.start_date||"mission";
@@ -551,8 +587,15 @@ async function toggleTask(t,completed){
 }
 
 $("#completeDayBtn").addEventListener("click",async()=>{
+  if(!today || today.totalTasks===0){showToast("Add at least one task first");return;}
   if(today.percent<100){showToast("Finish all tasks to close the day");return;}
-  showToast("Today is already complete");
+  if(today.completed){showToast("Day already completed");return;}
+  const r=await supabase.from("completed_days").upsert({user_id:user.id,task_date:today.date,completed:true,updated_at:new Date().toISOString()},{onConflict:"user_id,task_date"});
+  if(r.error){showToast(`Could not complete day: ${r.error.message}`);return;}
+  today=await getDay(today.date);
+  renderToday();
+  await refreshStats();
+  showToast("Day completed ✓");
 });
 
 $("#saveNotes").addEventListener("click",async()=>{
@@ -578,6 +621,21 @@ function countPerfectWeeks(rows){
   }
   return {streak:current,best};
 }
+function renderWeekDots(){
+  const box=$("#weekDots"); if(!box || !mission || !today)return;
+  const dayNo=missionDayNumber(today.date);
+  const weekStart=Math.floor((Math.max(1,dayNo)-1)/7)*7+1;
+  box.innerHTML=Array.from({length:7},(_,i)=>{
+    const n=weekStart+i;
+    if(n>100)return `<span class="week-dot future" title="Beyond mission"></span>`;
+    const date=addDays(mission.start_date,n-1);
+    const row=history.find(x=>x.date===date)||(date===today.date?today:null);
+    const state=row?.percent===100?"done":row?.percent>0?"partial":"";
+    return `<span class="week-dot ${state} ${date===today.date?"current":""}" title="Day ${n}: ${row?row.percent+"%":"Not started"}"></span>`;
+  }).join("");
+  const label=$("#weekDotsLabel"); if(label) label.textContent=`Week ${Math.ceil(Math.max(1,dayNo)/7)} · ${Array.from({length:7},(_,i)=>weekStart+i).filter(n=>{const d=addDays(mission.start_date,n-1);const r=history.find(x=>x.date===d)||(d===today.date?today:null);return n<=100&&r?.percent===100;}).length}/7`;
+}
+
 async function refreshStats(){
   history=await getHistory();
   const completedDays=history.filter(x=>x.totalTasks>0 && x.percent===100).length;
@@ -590,6 +648,7 @@ async function refreshStats(){
   const weekly=countPerfectWeeks(history);
   $("#currentStreak").textContent=weekly.streak;
   const badge=$("#weekStreakBadge"); if(badge) badge.textContent=weekly.streak?`🔥 ${weekly.streak} week${weekly.streak===1?"":"s"} strong`:"🔥 Start your week streak";
+  renderWeekDots();
   renderHistory(); drawChart();
 }
 
@@ -784,6 +843,19 @@ function stopApp(){session=null;user=null;mission=null;tasks=[];allTasks=[];cust
 
 supabase.auth.onAuthStateChange(async(_event,s)=>{if(s)await startApp(s);else stopApp();});
 (async()=>{const r=await supabase.auth.getSession();if(r.data.session)await startApp(r.data.session);})();
-setInterval(async()=>{if(!user||!today)return;const freshDate=dateKeyInIST();if(freshDate!==today.date&&today.date===selectedDate){selectedDate=freshDate;today=await getDay(freshDate);loadBoosters();renderToday();await refreshStats();}},30000);
+setInterval(async()=>{
+  if(!user || !today || !selectedDate) return;
+  const freshDate=dateKeyInIST();
+  // Only auto-roll the dashboard when the user is actually viewing TODAY.
+  // Never kick a user back from a future/work-ahead day.
+  if(selectedDate===freshDate && today.date===freshDate){
+    try{
+      today=await getDay(freshDate);
+      loadBoosters();
+      renderToday();
+      await refreshStats();
+    }catch(err){ console.error('Daily refresh failed',err); }
+  }
+},30000);
 
 })();
