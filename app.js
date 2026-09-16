@@ -17,6 +17,10 @@ let allTasks = [];
 let customTaskIds = [];
 let projects = [];
 let editingProjectId = null;
+let focusTimerSeconds = 25 * 60;
+let focusTimerTotal = 25 * 60;
+let focusTimerInterval = null;
+let focusTimerRunning = false;
 
 
 function fmtMinutes(m){ m=Number(m)||0; return m>=60 ? `${Math.floor(m/60)}h${m%60?` ${m%60}m`:""}` : `${m}m`; }
@@ -541,33 +545,48 @@ async function maybeCelebratePerfectDay(previousPercent){
   if(!celebrationWasShown("daily",today.date))openCelebration("daily",base);
 }
 
+async function syncDayCompletion(targetDate,dayData){
+  if(!dayData || !user || !targetDate) return dayData;
+  if(dayData.totalTasks>0 && dayData.percent>=100 && !dayData.completed){
+    const r=await supabase.from("completed_days").upsert({user_id:user.id,task_date:targetDate,completed:true,updated_at:new Date().toISOString()},{onConflict:"user_id,task_date"});
+    if(r.error) throw r.error;
+    return await getDay(targetDate);
+  }
+  if((dayData.percent<100 || dayData.totalTasks===0) && dayData.completed){
+    const r=await supabase.from("completed_days").delete().eq("user_id",user.id).eq("task_date",targetDate);
+    if(r.error) throw r.error;
+    return await getDay(targetDate);
+  }
+  return dayData;
+}
+
 async function toggleTask(t,completed){
   const targetDate=today?.date;
   if(!targetDate)return;
   const previousPercent=today.percent;
   const r=await supabase.from("daily_tasks").upsert({user_id:user.id,task_date:targetDate,task_id:t.id,completed,minutes_worked:completed?Number(t.minutes)||0:0,updated_at:new Date().toISOString()},{onConflict:"user_id,task_date,task_id"});
   if(r.error){showToast(`Could not save task: ${r.error.message}`);return;}
-  let refreshed=await getDay(targetDate);
-  if(refreshed.percent<100 && refreshed.completed){await supabase.from("completed_days").delete().eq("user_id",user.id).eq("task_date",targetDate);refreshed=await getDay(targetDate);}
-  if(selectedDate!==targetDate)return;
-  today=refreshed; renderToday(); await loadProjects(); await refreshStats();
-  if(selectedDate===targetDate && today?.date===targetDate) await maybeCelebratePerfectDay(previousPercent);
+  try{
+    let refreshed=await getDay(targetDate);
+    refreshed=await syncDayCompletion(targetDate,refreshed);
+    if(selectedDate!==targetDate)return;
+    today=refreshed;
+    renderToday();
+    await loadProjects();
+    await refreshStats();
+    if(selectedDate===targetDate && today?.date===targetDate) await maybeCelebratePerfectDay(previousPercent);
+  }catch(err){showToast(`Could not update day: ${err.message}`);}
 }
 
 $("#completeDayBtn").addEventListener("click",async()=>{
   const targetDate=today?.date;
-  if(!targetDate || today.totalTasks===0){showToast("Add at least one task first");return;}
-  if(today.percent<100){showToast("Finish all tasks to close the day");return;}
-  if(today.completed){showToast("Day already completed");return;}
-  const r=await supabase.from("completed_days").upsert({user_id:user.id,task_date:targetDate,completed:true,updated_at:new Date().toISOString()},{onConflict:"user_id,task_date"});
-  if(r.error){showToast(`Could not complete day: ${r.error.message}`);return;}
-  const refreshed=await getDay(targetDate);
-  if(selectedDate!==targetDate)return;
-  today=refreshed;
-  renderToday();
-  await loadProjects();
-  await refreshStats();
-  showToast("Day completed ✓");
+  if(!targetDate)return;
+  if(today.totalTasks>0 && today.percent>=100){
+    try{ today=await syncDayCompletion(targetDate,today); renderToday(); await loadProjects(); await refreshStats(); showToast("Day completed ✓"); }
+    catch(err){showToast(`Could not complete day: ${err.message}`);}
+    return;
+  }
+  showToast("Finish every task to complete the day");
 });
 
 $("#saveNotes").addEventListener("click",async()=>{
@@ -625,6 +644,7 @@ async function refreshStats(){
   $("#currentStreak").textContent=weekly.streak;
   const badge=$("#weekStreakBadge"); if(badge) badge.textContent=weekly.streak?`🔥 ${weekly.streak} week${weekly.streak===1?"":"s"} strong`:"🔥 Start your week streak";
   renderWeekDots();
+  renderMomentum();
   renderHistory(); drawChart();
 }
 
@@ -649,28 +669,69 @@ function dayTaskBreakdownForChart(date,row){
   const items=source.filter(t=>Number(t.minutes)>0).map(t=>({name:t.name,minutes:Number(t.minutes)||0,completed:!!t.completed,projectName:t.projectName||null}));
   const total=items.reduce((s,t)=>s+t.minutes,0),done=items.filter(t=>t.completed).reduce((s,t)=>s+t.minutes,0);return {items,total,done};
 }
-function showChartTooltip(day,anchorX){
-  const tip=$("#chartTooltip");if(!tip)return;
-  const lines=day.breakdown.items.length?day.breakdown.items.map((t,i)=>`<span class="chart-tip-item"><i style="--i:${i}"></i><b>${escapeHtml(t.name)}</b><em>${fmtMinutes(t.minutes)}</em></span>`).join(""):'<span><b>No task scheduled</b><em>—</em></span>';
-  tip.innerHTML=`<div class="chart-tip-top"><strong>Day ${day.day}</strong><span>${escapeHtml(formatDate(day.date,{day:"numeric",month:"short",year:"numeric"}))}</span></div><div class="chart-tip-total"><b>${fmtMinutes(day.breakdown.done)}</b><span>${day.percent}% complete · ${fmtMinutes(day.breakdown.total)} planned</span></div><div class="chart-tip-list">${lines}</div>`;
-  tip.hidden=false;const wrap=$(".mini-chart-wrap"),scroll=$("#chartScroll");if(!wrap)return;const localX=Math.max(8,Math.min(Math.max(8,wrap.clientWidth-tip.offsetWidth-8),anchorX-(scroll?.scrollLeft||0)-tip.offsetWidth/2));tip.style.left=`${localX}px`;tip.style.top="14px";
+function chartTaskLines(day){
+  return day.breakdown.items.length
+    ? day.breakdown.items.map(t=>`<div class="chart-tip-item"><span><b>${escapeHtml(t.name)}</b><small>${t.completed?"completed":"planned"}</small></span><strong>${fmtMinutes(t.minutes)}</strong></div>`).join("")
+    : '<div class="chart-tip-empty">No task scheduled</div>';
+}
+function showChartTooltip(day,anchorEl){
+  const tip=$("#chartTooltip"), wrap=$(".rich-chart-wrap"), scroll=$("#chartScroll");
+  if(!tip||!wrap||!anchorEl)return;
+  const completedText=day.breakdown.done?fmtMinutes(day.breakdown.done):"0m";
+  const plannedText=day.breakdown.total?fmtMinutes(day.breakdown.total):"0m";
+  tip.innerHTML=`<div class="chart-tip-top"><strong>Day ${day.day}</strong><span>${escapeHtml(formatDate(day.date,{day:"numeric",month:"short",year:"numeric"}))}</span></div><div class="chart-tip-hero"><b>${day.percent}%</b><span>${completedText} worked · ${plannedText} planned</span></div><div class="chart-tip-list">${chartTaskLines(day)}</div>`;
+  tip.hidden=false;
+  const r=anchorEl.getBoundingClientRect(), wr=wrap.getBoundingClientRect();
+  const center=r.left+r.width/2-wr.left+(scroll?.scrollLeft||0);
+  const maxLeft=Math.max(8,wrap.scrollWidth-tip.offsetWidth-8);
+  tip.style.left=`${Math.max(8,Math.min(maxLeft,center-tip.offsetWidth/2))}px`;
+  tip.style.top="16px";
 }
 function hideChartTooltip(){const tip=$("#chartTooltip");if(tip)tip.hidden=true;}
 function heatClass(minutes,max){if(minutes<=0)return"heat-0";const ratio=max>0?minutes/max:0;return`heat-${Math.min(5,Math.max(1,Math.ceil(ratio*5)))}`;}
+function scrollChartToDay(startDay){
+  const scroll=$("#chartScroll"), el=document.querySelector(`.chart-day[data-day="${Math.max(1,startDay)}"]`);
+  if(!scroll||!el)return;
+  const target=el.offsetLeft-24;
+  scroll.scrollTo({left:Math.max(0,target),behavior:"smooth"});
+}
 function drawChart(){
-  const chart=$("#progressChart");if(!chart||!mission||!today)return;chart.innerHTML="";hideChartTooltip();
-  const byDate=Object.fromEntries(history.map(x=>[x.date,x]));byDate[today.date]=today;
-  const days=Array.from({length:100},(_,i)=>{const date=addDays(mission.start_date,i),row=byDate[date],breakdown=dayTaskBreakdownForChart(date,row),percent=row?Number(row.percent||0):0;return{day:i+1,date,percent,recorded:!!row,future:date>dateKeyInIST(),breakdown};});
-  const maxMinutes=Math.max(0,...days.map(x=>x.breakdown.done));const recorded=days.filter(x=>x.recorded&&x.date<=dateKeyInIST()),average=recorded.length?Math.round(recorded.reduce((s,x)=>s+x.percent,0)/recorded.length):0,best=recorded.reduce((a,x)=>!a||x.percent>a.percent?x:a,null);
-  const NS="http://www.w3.org/2000/svg",width=3600,height=340,left=46,right=22,top=24,bottom=58,plotW=width-left-right,plotH=height-top-bottom;const svg=document.createElementNS(NS,"svg");svg.setAttribute("viewBox",`0 0 ${width} ${height}`);svg.setAttribute("width",width);svg.setAttribute("height",height);
-  const add=(tag,attrs={},text="")=>{const e=document.createElementNS(NS,tag);Object.entries(attrs).forEach(([k,v])=>e.setAttribute(k,v));if(text)e.textContent=text;svg.appendChild(e);return e;};
-  [100,75,50,25,0].forEach(v=>{const y=top+plotH*(1-v/100);add("line",{x1:left,y1:y,x2:width-right,y2:y,class:"chart-grid"});add("text",{x:left-7,y:y+4,class:"chart-axis chart-y"},`${v}%`);});
-  days.forEach((p,i)=>{const slot=plotW/100,x=left+i*slot+slot*.18,barW=Math.max(16,slot*.64),clamped=Math.max(0,Math.min(100,p.percent)),barH=plotH*clamped/100,y=top+plotH-barH;add("rect",{x,y:top,width:barW,height:plotH,rx:5,class:"chart-bar-track"});const state=p.percent>=100?"complete":p.percent>0?"partial":p.future&&!p.recorded?"future":"empty";const bar=add("rect",{x,y:y+(barH<3?plotH-3:0),width:barW,height:Math.max(3,barH),rx:6,class:`chart-bar ${state} ${heatClass(p.breakdown.done,maxMinutes)} ${p.date===today.date?"selected-day":""}`});
-    const enter=()=>{bar.classList.add("lifted");showChartTooltip(p,x+barW/2);},leave=()=>{bar.classList.remove("lifted");hideChartTooltip();};bar.addEventListener("mouseenter",enter);bar.addEventListener("mouseleave",leave);bar.addEventListener("focus",enter);bar.addEventListener("blur",leave);bar.addEventListener("click",()=>openDayModal(p.date));
-    add("text",{x:x+barW/2,y:height-16,class:`chart-axis ${p.date===today.date?"today-label":""}`},`D${p.day}`);if(p.date===today.date)add("rect",{x:x-3,y:top-3,width:barW+6,height:plotH+6,rx:7,class:"today-outline"});
+  const chart=$("#progressChart"); if(!chart||!mission||!today)return;
+  chart.innerHTML=""; hideChartTooltip();
+  const byDate=Object.fromEntries(history.map(x=>[x.date,x])); byDate[today.date]=today;
+  const days=Array.from({length:100},(_,i)=>{
+    const date=addDays(mission.start_date,i);
+    const row=byDate[date];
+    const breakdown=dayTaskBreakdownForChart(date,row);
+    const percent=row?Number(row.percent||0):0;
+    return {day:i+1,date,percent,recorded:!!row,future:date>dateKeyInIST(),breakdown};
   });
-  chart.appendChild(svg);$("#chartStats").innerHTML=`<div><b>${recorded.length}</b><span>days recorded</span></div><div><b>${average}%</b><span>average work</span></div><div><b>${best?best.percent+"%":"—"}</b><span>${best?"best day · D"+best.day:"best day"}</span></div><div><b>${today.percent}%</b><span>view · D${missionDayNumber(today.date)}</span></div>`;
-  requestAnimationFrame(()=>{const scroll=$("#chartScroll");if(scroll){const d=missionDayNumber(today.date),progress=(Math.max(1,d)-1)/99;scroll.scrollLeft=Math.max(0,progress*(scroll.scrollWidth-scroll.clientWidth));}});
+  const maxMinutes=Math.max(1,...days.map(x=>x.breakdown.done));
+  const recorded=days.filter(x=>x.recorded && x.date<=dateKeyInIST());
+  const totalFocus=recorded.reduce((s,x)=>s+x.breakdown.done,0);
+  const best=recorded.reduce((a,x)=>!a||x.breakdown.done>a.breakdown.done?x:a,null);
+  const taskTotals={};
+  recorded.forEach(d=>d.breakdown.items.filter(t=>t.completed).forEach(t=>taskTotals[t.name]=(taskTotals[t.name]||0)+t.minutes));
+  const topTask=Object.entries(taskTotals).sort((a,b)=>b[1]-a[1])[0];
+
+  chart.innerHTML=`<div class="chart-y-labels"><span>100%</span><span>75%</span><span>50%</span><span>25%</span><span>0%</span></div><div class="chart-stage"><div class="chart-grid-lines"><i></i><i></i><i></i><i></i><i></i></div><div class="chart-days" id="chartDays"></div></div>`;
+  const daysBox=$("#chartDays");
+  days.forEach(p=>{
+    const col=document.createElement("button");
+    col.type="button"; col.className=`chart-day ${p.percent>=100?"complete":p.percent>0?"partial":p.future&&!p.recorded?"future":"empty"} ${heatClass(p.breakdown.done,maxMinutes)} ${p.date===today.date?"selected-day":""}`;
+    col.dataset.day=String(p.day); col.setAttribute("aria-label",`Day ${p.day} ${p.percent}%`);
+    const height=p.percent>0?Math.max(3,p.percent):2;
+    col.innerHTML=`<span class="chart-track"></span><span class="chart-fill" style="height:${height}%"></span><span class="chart-day-label">D${p.day}</span>`;
+    col.addEventListener("mouseenter",()=>{col.classList.add("lifted");showChartTooltip(p,col);});
+    col.addEventListener("mouseleave",()=>{col.classList.remove("lifted");hideChartTooltip();});
+    col.addEventListener("focus",()=>{col.classList.add("lifted");showChartTooltip(p,col);});
+    col.addEventListener("blur",()=>{col.classList.remove("lifted");hideChartTooltip();});
+    col.addEventListener("click",()=>openDayModal(p.date));
+    daysBox.appendChild(col);
+  });
+  $("#chartStats").innerHTML=`<div><b>${fmtMinutes(totalFocus)}</b><span>total focus</span></div><div><b>${best?fmtMinutes(best.breakdown.done):"—"}</b><span>${best?`best day · D${best.day}`:"best day"}</span></div><div><b>${topTask?escapeHtml(topTask[0]):"—"}</b><span>${topTask?`${fmtMinutes(topTask[1])} most worked`:"most worked task"}</span></div><div><b>${today.percent}%</b><span>view · D${missionDayNumber(today.date)}</span></div>`;
+  const insight=$("#chartInsight"); if(insight){ insight.innerHTML = topTask ? `<span class="insight-icon">✦</span><span><b>Most worked:</b> ${escapeHtml(topTask[0])} · ${fmtMinutes(topTask[1])}. Your bars get richer as your completed focus time grows.</span>` : `<span class="insight-icon">✦</span><span>Complete a task to build your activity profile. Hover a bar for the exact task/time breakdown.</span>`; }
+  requestAnimationFrame(()=>scrollChartToDay(missionDayNumber(today.date)));
 }
 
 async function openDayModal(date){
@@ -706,17 +767,54 @@ $("#importFile").addEventListener("change",async e=>{
 function loadBoosters(){["Focus","Phone","Review","Next"].forEach(name=>{const key=`booster${name}`,el=$("#"+key);el.checked=localStorage.getItem(`tracker-${today.date}-${key}`)==="true";});}
 
 
+function projectStreakFromDates(dateSet){
+  const todayKey=dateKeyInIST();
+  let cursor=todayKey, streak=0;
+  while(dateSet.has(cursor)){streak++; cursor=addDays(cursor,-1);}
+  return streak;
+}
 async function loadProjects(){
   if(!user)return;
   const r=await supabase.from("projects").select("id,name,target_minutes,created_at,updated_at").eq("user_id",user.id).order("created_at",{ascending:true});
   if(r.error) throw r.error;
-  const dt=await supabase.from("daily_tasks").select("task_id,completed,minutes_worked").eq("user_id",user.id).eq("completed",true);
-  const progressRows=dt.error?[]:(dt.data||[]); const taskMap=Object.fromEntries(allTasks.map(t=>[String(t.id),t])); const progressByProject={};
-  progressRows.forEach(row=>{const task=taskMap[String(row.task_id)];if(task?.projectId){progressByProject[String(task.projectId)]=(progressByProject[String(task.projectId)]||0)+Number(row.minutes_worked||0);}});
-  projects=(r.data||[]).map(p=>({...p,completed_minutes:progressByProject[String(p.id)]||0})); renderProjects(); window.refreshNewTaskProjectPicker?.();
+  const dt=await supabase.from("daily_tasks").select("task_date,task_id,completed,minutes_worked").eq("user_id",user.id).eq("completed",true);
+  if(dt.error) throw dt.error;
+  const progressByProject={}, activityByProject={}, taskBreakdown={};
+  const seen=new Set();
+  const taskMap=Object.fromEntries(allTasks.map(t=>[String(t.id),t]));
+  (dt.data||[]).forEach(row=>{
+    const uniqueKey=`${row.task_date}::${row.task_id}`; if(seen.has(uniqueKey)) return; seen.add(uniqueKey);
+    const task=taskMap[String(row.task_id)]; if(!task?.projectId) return;
+    const pid=String(task.projectId); const mins=Math.max(0,Number(row.minutes_worked)||0);
+    progressByProject[pid]=(progressByProject[pid]||0)+mins;
+    (activityByProject[pid] ||= new Set()).add(row.task_date);
+    (taskBreakdown[pid] ||= {} )[task.name]=(taskBreakdown[pid][task.name]||0)+mins;
+  });
+  projects=(r.data||[]).map(p=>{
+    const pid=String(p.id), activeDays=activityByProject[pid]||new Set(), breakdown=taskBreakdown[pid]||{};
+    const topTask=Object.entries(breakdown).sort((a,b)=>b[1]-a[1])[0]||null;
+    return {...p,completed_minutes:progressByProject[pid]||0,active_days:activeDays.size,streak:projectStreakFromDates(activeDays),today_minutes:((activityByProject[pid]&&activityByProject[pid].has(dateKeyInIST()))?Array.from([]).length:0),top_task:topTask?{name:topTask[0],minutes:topTask[1]}:null};
+  });
+  renderProjects(); window.refreshNewTaskProjectPicker?.();
 }
 function fmtProjectTime(m){m=Math.max(0,Number(m)||0);const h=Math.floor(m/60),mins=m%60;if(h&&mins)return `${h}h ${mins}m`;if(h)return `${h}h`;return `${mins}m`;}
-function renderProjects(){const list=$("#projectsList");if(!list)return;if(!projects.length){list.innerHTML='<div class="projects-empty"><b>No projects yet</b><span>Create your own private project and set its target time.</span></div>';return;}list.innerHTML=projects.map(p=>{const pct=Math.min(100,Math.round((Number(p.completed_minutes||0)/Math.max(1,Number(p.target_minutes)||1))*100));return `<div class="project-row" data-project-id="${escapeHtml(p.id)}"><div class="project-main"><span class="project-dot"></span><div><b>${escapeHtml(p.name)}</b><span class="project-private">PRIVATE · ONLY YOU</span></div></div><div class="project-meta"><span class="project-meta-label">PROGRESS</span><strong>${fmtProjectTime(p.completed_minutes)} / ${fmtProjectTime(p.target_minutes)}</strong><div class="project-progress"><span style="width:${pct}%"></span></div><small>${pct}% complete</small></div><div class="project-actions"><button class="secondary project-edit" type="button">Edit</button><button class="secondary project-delete" type="button">Delete</button></div></div>`;}).join("");list.querySelectorAll('.project-edit').forEach(b=>b.addEventListener('click',()=>openProjectModal(b.closest('.project-row').dataset.projectId)));list.querySelectorAll('.project-delete').forEach(b=>b.addEventListener('click',()=>deleteProject(b.closest('.project-row').dataset.projectId)));}
+function projectHue(name){let h=0;for(let i=0;i<String(name).length;i++)h=(h*31+String(name).charCodeAt(i))%360;return `hsl(${h} 75% 68%)`;}
+function renderProjects(){
+  const list=$("#projectsList"); if(!list)return;
+  if(!projects.length){list.innerHTML='<div class="projects-empty"><b>No projects yet</b><span>Create a private project, then link checklist tasks to it with @.</span></div>';return;}
+  list.innerHTML=projects.map(p=>{
+    const target=Math.max(1,Number(p.target_minutes)||1), logged=Math.max(0,Number(p.completed_minutes)||0), pct=Math.min(100,Math.round(logged/target*100));
+    const overflow=Math.max(0,logged-target);
+    const status=pct>=100?'Complete':logged>0?'In progress':'Ready';
+    return `<article class="project-row" data-project-id="${escapeHtml(p.id)}" style="--project-accent:${projectHue(p.name)}">
+      <div class="project-main"><span class="project-dot"></span><div><div class="project-name-line"><b>${escapeHtml(p.name)}</b><span class="project-status-pill ${status.toLowerCase().replace(' ','-')}">${status}</span></div><span class="project-private">PRIVATE · ONLY YOU</span><div class="project-facts"><span>🔥 ${p.streak}d streak</span><span>${p.active_days} active day${p.active_days===1?'':'s'}</span>${p.top_task?`<span>Top: ${escapeHtml(p.top_task.name)}</span>`:''}</div></div></div>
+      <div class="project-meta"><div class="project-meta-line"><strong>${fmtProjectTime(logged)}</strong><span> / ${fmtProjectTime(target)}</span></div><div class="project-progress"><span style="width:${pct}%"></span></div><small>${pct}% complete${overflow?` · ${fmtProjectTime(overflow)} over target`:''}</small></div>
+      <div class="project-actions"><button class="secondary project-edit" type="button">Edit</button><button class="secondary project-delete" type="button">Delete</button></div>
+    </article>`;
+  }).join("");
+  list.querySelectorAll('.project-edit').forEach(b=>b.addEventListener('click',()=>openProjectModal(b.closest('.project-row').dataset.projectId)));
+  list.querySelectorAll('.project-delete').forEach(b=>b.addEventListener('click',()=>deleteProject(b.closest('.project-row').dataset.projectId)));
+}
 function openProjectModal(id=null){editingProjectId=id;const p=id?projects.find(x=>String(x.id)===String(id)):null;$("#projectModalTitle").textContent=p?"Edit project":"Create new project";$("#projectName").value=p?.name||"";const total=Math.max(0,Number(p?.target_minutes)||0);$("#projectHours").value=p?Math.floor(total/60):"";$("#projectMinutes").value=p?total%60:"";$("#projectModal").classList.add("open");$("#projectModal").setAttribute("aria-hidden","false");setTimeout(()=>$("#projectName").focus(),0);}
 function closeProjectModal(){$("#projectModal").classList.remove("open");$("#projectModal").setAttribute("aria-hidden","true");editingProjectId=null;}
 async function saveProject(e){e.preventDefault();const name=$("#projectName").value.trim();let hours=Math.max(0,parseInt($("#projectHours").value,10)||0),minutes=Math.max(0,parseInt($("#projectMinutes").value,10)||0);if(minutes>59){hours+=Math.floor(minutes/60);minutes%=60;}const target_minutes=hours*60+minutes;if(!name){showToast("Enter a project name");return;}if(target_minutes<=0){showToast("Set a target time greater than 0 minutes");return;}const wasEdit=!!editingProjectId;const btn=$("#projectForm button[type=submit]");btn.disabled=true;try{let r;if(editingProjectId)r=await supabase.from("projects").update({name,target_minutes,updated_at:new Date().toISOString()}).eq("id",editingProjectId).eq("user_id",user.id);else r=await supabase.from("projects").insert({user_id:user.id,name,target_minutes}).select("id,name,target_minutes,created_at,updated_at").single();if(r.error)throw r.error;await loadProjects();closeProjectModal();showToast(wasEdit?"Project updated":"Project created");renderTaskManager();}catch(err){showToast(`Could not save project: ${err.message}`);}finally{btn.disabled=false;}}
@@ -842,6 +940,7 @@ $("#signUpBtn").addEventListener("click",async()=>{
   }
 });
 $("#signOutBtn").addEventListener("click",()=>supabase.auth.signOut());
+initFocusSprint();
 
 document.querySelectorAll("#chartRangeNav .chart-range-btn").forEach(btn=>btn.addEventListener("click",()=>{
   const start=Number(btn.dataset.start)||1;
@@ -850,6 +949,34 @@ document.querySelectorAll("#chartRangeNav .chart-range-btn").forEach(btn=>btn.ad
   scrollChartToDay(start);
 }));
 $("#chartScroll")?.addEventListener("scroll",()=>hideChartTooltip());
+
+
+function renderMomentum(){
+  const boxWeek=$("#momentumWeekDays"), boxFocus=$("#momentumFocusTime"), boxBest=$("#momentumBestDay"), chip=$("#momentumChip");
+  if(!boxWeek||!today)return;
+  const dayNo=missionDayNumber(today.date), weekStart=Math.floor((Math.max(1,dayNo)-1)/7)*7+1;
+  let doneDays=0, focus=0, best=null;
+  for(let i=0;i<7;i++){
+    const n=weekStart+i; if(n>100) continue;
+    const date=addDays(mission.start_date,n-1); const row=(date===today.date?today:history.find(x=>x.date===date));
+    if(row?.percent===100) doneDays++;
+    if(row){focus+=Number(row.completedMinutes||0); if(!best||Number(row.completedMinutes||0)>Number(best.completedMinutes||0))best=row;}
+  }
+  boxWeek.textContent=`${doneDays}/7`;
+  boxFocus.textContent=fmtMinutes(focus);
+  boxBest.textContent=best?`D${missionDayNumber(best.date)}`:'—';
+  if(chip) chip.textContent=doneDays===7?'WEEK COMPLETE':doneDays>0?`${doneDays} / 7 MOVING`:'READY';
+}
+
+function initFocusSprint(){
+  const timer=$("#focusTimer"),fill=$("#focusProgressFill"),start=$("#focusStartBtn"),pause=$("#focusPauseBtn"),reset=$("#focusResetBtn");
+  if(!timer||!start||!pause||!reset)return;
+  const render=()=>{const m=Math.floor(focusTimerSeconds/60),s=focusTimerSeconds%60;timer.textContent=`${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`; if(fill)fill.style.width=`${Math.max(0,Math.min(100,(1-focusTimerSeconds/focusTimerTotal)*100))}%`;start.textContent=focusTimerRunning?'Running…':'Start focus';start.disabled=focusTimerRunning;};
+  const stop=()=>{clearInterval(focusTimerInterval);focusTimerInterval=null;focusTimerRunning=false;render();};
+  document.querySelectorAll('.focus-preset').forEach(btn=>btn.addEventListener('click',()=>{stop();focusTimerTotal=Number(btn.dataset.focusMin||25)*60;focusTimerSeconds=focusTimerTotal;document.querySelectorAll('.focus-preset').forEach(x=>x.classList.toggle('active',x===btn));render();}));
+  start.addEventListener('click',()=>{if(focusTimerRunning)return;focusTimerRunning=true;render();focusTimerInterval=setInterval(()=>{focusTimerSeconds=Math.max(0,focusTimerSeconds-1);render();if(focusTimerSeconds<=0){stop();showToast('Focus sprint complete ✦');}},1000);});
+  pause.addEventListener('click',stop); reset.addEventListener('click',()=>{stop();focusTimerSeconds=focusTimerTotal;render();}); render();
+}
 
 async function startApp(s){
   session=s;user=s.user;$("#authScreen").classList.add("hidden");$("#appShell").classList.remove("hidden");

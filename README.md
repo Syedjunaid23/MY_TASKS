@@ -1,34 +1,29 @@
-# MY_TASKS v17
+# MY_TASKS V18
 
-A cloud-synced 100-day study/work tracker built for GitHub Pages + Supabase.
+V18 keeps the existing MY_TASKS dashboard, Projects, Mission start date, 100-day history, Supabase Auth and milestone celebrations, while polishing the productivity UI.
 
-## V17 changes
+## V18 highlights
 
-- Future/work-ahead view is persisted per signed-in user so switching tabs or reopening the app does not jump back to Day 1.
-- Day completion is tied to the exact mission date.
-- A completed day is automatically reopened if a task is later unchecked, so the button/state stays consistent.
-- Progress graph renders all 100 mission days in one horizontal scroll area with D1–D100 labels.
-- Graph bars use GitHub-style intensity: more completed hours = darker green.
-- Hovering a bar lifts it slightly and shows a glass tooltip with completion, planned time, completed time, and task-by-task minutes.
-- Clicking a bar still opens the normal day detail modal.
-- History cells use the same activity intensity language and remain clickable for all 100 days.
-- Weekly streak remains a 7-day milestone rather than a daily streak.
-- Checklist tasks can optionally be linked to a private project with a compact `@` project picker.
-- Completing a linked task adds its scheduled minutes to that project's target progress.
-- Projects now display live progress such as `2h / 5h` and a compact progress bar.
-- Task setup remains simple: name, time, optional schedule, optional project.
+- Auto-completes a mission day when all scheduled tasks reach 100%.
+- Future-day work-ahead remains tied to the selected mission date.
+- Daily Work graph contains all 100 days in one horizontal scroll.
+- Graph hover uses a stable hit area with a glass tooltip so bars do not vibrate or flicker.
+- Hover shows completion %, worked time, planned time and task-by-task time.
+- Bars use a GitHub-style green intensity scale based on completed focus time.
+- Range buttons jump to 1–20, 21–40, 41–60, 61–80 and 81–100.
+- Adds momentum stats: weekly completion, focus time and best focus day.
+- Adds a lightweight Focus Sprint timer (25/50/90 minutes).
+- Projects show logged time, target time, active days, streak and the task contributing the most time.
+- Task/project dropdowns are compact floating panels rather than layout-breaking sections.
+- Existing task-to-project linking and project progress logic remain compatible with the V17 database setup.
 
-## Files
+## Deployment
 
-For GitHub Pages deployment, upload only:
+Upload exactly these four files to the root of the GitHub Pages `main` branch:
 
 - `index.html`
 - `app.js`
 - `styles.css`
 - `README.md`
 
-## Database update
-
-Run `tasks_permissions_and_custom_v17.sql` once in the Supabase SQL editor after the existing v13 setup. It adds the project link on tasks and stores a stable minute snapshot for completed checklist work.
-
-No frontend build step is required.
+No new SQL migration is required for V18. Keep the database/RPC setup already applied for V17.
