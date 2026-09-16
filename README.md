@@ -27,3 +27,6 @@ Upload exactly these four files to the root of the GitHub Pages `main` branch:
 - `README.md`
 
 No new SQL migration is required for V18. Keep the database/RPC setup already applied for V17.
+
+
+Login fix: cache-busted app.js to v18 and bound the sign-in handler before other UI listeners.

@@ -4,6 +4,42 @@ const SUPABASE_URL = "https://gphhqduzfpvcqatfuviq.supabase.co";
 const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_juaQo-1G66hHWvNN7KcvaA_RZ61YSjr";
 const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
 
+// Bind authentication before the rest of the UI wiring so a later optional UI error
+// cannot leave the login form inert.
+(function bindAuthEarly(){
+  const form = document.querySelector("#authForm");
+  const emailEl = document.querySelector("#authEmail");
+  const passwordEl = document.querySelector("#authPassword");
+  if(!form || !emailEl || !passwordEl) return;
+  form.addEventListener("submit", async (e)=>{
+    e.preventDefault();
+    e.stopPropagation();
+    const btn = form.querySelector('button[type="submit"]');
+    const message = document.querySelector("#authMessage");
+    const setMsg = (text, error=false)=>{
+      if(!message) return;
+      message.textContent = text;
+      message.className = `auth-message ${error ? "error" : ""}`;
+    };
+    const email = emailEl.value.trim();
+    const password = passwordEl.value;
+    if(!email || !password){ setMsg("Enter your email and password.", true); return; }
+    btn?.setAttribute("disabled","disabled");
+    setMsg("Signing in…");
+    try{
+      const r = await supabase.auth.signInWithPassword({email,password});
+      if(r.error){ setMsg(r.error.message, true); return; }
+      if(!r.data?.session){ setMsg("Login did not create a session. Please try again.", true); return; }
+      setMsg("Signed in successfully.");
+    }catch(err){
+      console.error("Login error:", err);
+      setMsg(err?.message || "Could not sign in. Check your connection and try again.", true);
+    }finally{
+      btn?.removeAttribute("disabled");
+    }
+  });
+})();
+
 const $ = s => document.querySelector(s);
 let session = null;
 let user = null;
@@ -880,36 +916,6 @@ $("#celebrationContinueBtn").addEventListener("click",closeCelebration);
 $("#celebrationOverlay").addEventListener("click",e=>{if(e.target===$("#celebrationOverlay"))closeCelebration();});
 document.addEventListener("keydown",e=>{if(e.key==="Escape" && $("#celebrationOverlay")?.classList.contains("open"))closeCelebration();});
 
-$("#authForm").addEventListener("submit",async e=>{
-  e.preventDefault();
-  e.stopPropagation();
-  const btn=$('#authForm button[type="submit"]');
-  const email=$("#authEmail").value.trim();
-  const password=$("#authPassword").value;
-  setAuthMessage("Signing in…");
-  if(btn) btn.disabled=true;
-  try{
-    if(!email || !password){
-      setAuthMessage("Enter your email and password.",true);
-      return;
-    }
-    const r=await supabase.auth.signInWithPassword({email,password});
-    if(r.error){
-      setAuthMessage(r.error.message,true);
-      return;
-    }
-    if(!r.data || !r.data.session){
-      setAuthMessage("Login did not create a session. Please try again.",true);
-      return;
-    }
-    setAuthMessage("Signed in successfully.");
-  }catch(err){
-    console.error("Login error:",err);
-    setAuthMessage(err && err.message ? err.message : "Could not sign in. Check your connection and try again.",true);
-  }finally{
-    if(btn) btn.disabled=false;
-  }
-});
 $("#resetPasswordBtn").addEventListener("click",async()=>{const email=$("#authEmail").value.trim();if(!email){setAuthMessage("Enter your email first.",true);return;}const r=await supabase.auth.resetPasswordForEmail(email,{redirectTo:location.href});setAuthMessage(r.error?r.error.message:"Password reset email sent.",!!r.error);});
 $("#signUpBtn").addEventListener("click",async()=>{
   const email=$("#authEmail").value.trim();
